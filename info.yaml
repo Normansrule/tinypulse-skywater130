@@ -1,0 +1,83 @@
+# info.yaml — Tiny Tapeout project metadata for TinyPulse-Skywater130.
+# See https://tinytapeout.com for the current schema.
+#
+# `tiles` is 2x2 because synthesis said so, not because it was estimated.
+# Yosys reports 1373 flip-flops for this configuration. At 19.55 um^2 per
+# sky130 dfxtp_1 that is 26,764 um^2 of flops alone, which is 123% of the
+# usable cell area of a 1x2 tile and 59% of a 2x2. An earlier hand estimate
+# said 1198 flops and 1x2; it was wrong, which is the argument for running
+# `yosys -s syn/synth_check.ys` before believing any area table.
+#
+# This is still not the final word: the real number comes from hardening
+# against the sky130 PDK. Read that area report before you order.
+
+project:
+  title:        "TinyPulse-Skywater130 time-deterministic RISC-V"
+  author:       "Aleksander Norman"
+  discord:      ""
+  description:  "RV32I core whose instruction set treats time as an operand: hardware event timestamping, deadline triggers with zero jitter, and a disciplinable timebase"
+  language:     "SystemVerilog"
+  clock_hz:     50000000            # 50 MHz signoff target; sweep in synthesis.
+                                    # At 50 MHz: 21 clocks per sequential
+                                    # instruction, 20 ns timestamp resolution.
+
+  tiles:        "2x2"
+
+  top_module:   "tt_um_normansrule_tinypulse"
+
+  # Package first, then leaves, then the modules that instantiate them.
+  source_files:
+    - "tp_pkg.sv"
+    - "core/tp_alu.sv"
+    - "core/tp_shifter.sv"
+    - "core/tp_branch_comp.sv"
+    - "core/tp_branch_unit.sv"
+    - "core/tp_regfile.sv"
+    - "core/tp_imm_gen.sv"
+    - "core/tp_decode.sv"
+    - "core/tp_bpred.sv"
+    - "core/tp_hazard.sv"
+    - "core/tp_lsu.sv"
+    - "core/tp_fetch.sv"
+    - "core/tp_core.sv"
+    - "sync/sync_timebase.sv"
+    - "sync/sync_capture.sv"
+    - "sync/sync_event_fifo.sv"
+    - "sync/sync_compare.sv"
+    - "sync/sync_unit.sv"
+    - "bus/tp_bus.sv"
+    - "bus/qspi_ctrl.sv"
+    - "tp_soc.sv"
+    - "tt_um_normansrule_tinypulse.sv"
+
+# Pin assignments. This text appears on the datasheet page.
+pinout:
+  ui[0]:  "CAP0 capture input (also QSPI read latency bit 0 at reset)"
+  ui[1]:  "CAP1 capture input (also QSPI read latency bit 1 at reset)"
+  ui[2]:  "CAP2 capture input (also QSPI read latency bit 2 at reset)"
+  ui[3]:  "CAP3 capture input"
+  ui[4]:  "CAP4 capture input"
+  ui[5]:  "CAP5 capture input"
+  ui[6]:  "CAP6 capture input"
+  ui[7]:  "CAP7 capture input"
+
+  uo[0]:  "TRIG0 deadline trigger output"
+  uo[1]:  "TRIG1 deadline trigger output"
+  uo[2]:  "EVT event queue not empty"
+  uo[3]:  "OVF event queue overflowed (sticky)"
+  uo[4]:  "HALT core retired ECALL/EBREAK"
+  uo[5]:  "ILL illegal instruction decoded (sticky)"
+  uo[6]:  "HB heartbeat, timebase bit 23"
+  uo[7]:  "SCK QSPI clock"
+
+  uio[0]: "SD0 QSPI data 0 (bidirectional)"
+  uio[1]: "SD1 QSPI data 1 (bidirectional)"
+  uio[2]: "SD2 QSPI data 2 (bidirectional)"
+  uio[3]: "SD3 QSPI data 3 (bidirectional)"
+  uio[4]: "CSF flash chip select, active low"
+  uio[5]: "CSR PSRAM chip select, active low"
+  uio[6]: "TRIG2 deadline trigger output"
+  uio[7]: "EVTP one-clock pulse on event capture"
+
+# Do not change unless you know what you are doing.
+yaml_version: 6

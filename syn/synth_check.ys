@@ -1,0 +1,52 @@
+# synth_check.ys — a fast sanity synthesis, independent of the PDK.
+#
+# This is NOT the hardening run: it uses Yosys's generic cell library, so
+# the numbers are technology-independent. What it tells you is the thing
+# you most want to know early:
+#
+#   1. Does the RTL synthesize at all with a stock Yosys? (The Tiny Tapeout
+#      flow runs Yosys. If this fails, hardening fails.)
+#   2. How many flip-flops are there really?
+#
+# Flip-flop count is the number that decides the tile count, and it is
+# fixed before technology mapping, so this run answers it exactly.
+#
+# Run from the repository root:
+#     yosys -s syn/synth_check.ys
+#
+# Requires Yosys 0.44 or newer for file-scope `import`. Check with
+# `yosys -V`; Debian and Ubuntu often ship something much older, in which
+# case `pip install yowasp-yosys` gets you a current build.
+
+read_verilog -sv src/tp_pkg.sv
+read_verilog -sv src/core/tp_alu.sv
+read_verilog -sv src/core/tp_shifter.sv
+read_verilog -sv src/core/tp_branch_comp.sv
+read_verilog -sv src/core/tp_branch_unit.sv
+read_verilog -sv src/core/tp_regfile.sv
+read_verilog -sv src/core/tp_imm_gen.sv
+read_verilog -sv src/core/tp_decode.sv
+read_verilog -sv src/core/tp_bpred.sv
+read_verilog -sv src/core/tp_hazard.sv
+read_verilog -sv src/core/tp_lsu.sv
+read_verilog -sv src/core/tp_fetch.sv
+read_verilog -sv src/core/tp_core.sv
+read_verilog -sv src/sync/sync_timebase.sv
+read_verilog -sv src/sync/sync_capture.sv
+read_verilog -sv src/sync/sync_event_fifo.sv
+read_verilog -sv src/sync/sync_compare.sv
+read_verilog -sv src/sync/sync_unit.sv
+read_verilog -sv src/bus/tp_bus.sv
+read_verilog -sv src/bus/qspi_ctrl.sv
+read_verilog -sv src/tp_soc.sv
+read_verilog -sv src/tt_um_normansrule_tinypulse.sv
+
+hierarchy -check -top tt_um_normansrule_tinypulse
+
+# elaborate and map to generic cells, but stop before technology mapping
+synth -top tt_um_normansrule_tinypulse -flatten -noabc
+
+# a latch here means an incomplete always_comb: treat it as a failure
+select -assert-none t:$dlatch t:$_DLATCH_*
+
+tee -o syn/stat.txt stat
