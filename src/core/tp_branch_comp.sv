@@ -3,8 +3,6 @@
 // mux. tp_branch_unit turns this bundle into taken/not-taken per funct3.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_branch_comp
 (
     input  wire logic [31:0] rs1,

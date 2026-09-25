@@ -4,8 +4,6 @@
 // read, without waiting on instruction decode.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_branch_unit
 (
     input  wire logic [2:0] funct3,

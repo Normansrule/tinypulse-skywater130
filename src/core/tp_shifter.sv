@@ -11,8 +11,6 @@
 // The result is valid on `y` from the cycle `busy` falls until the next start.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_shifter
 #(
     parameter bit BARREL = 1'b0
@@ -31,9 +29,9 @@ module tp_shifter
     if (BARREL) begin : g_barrel
         always_comb begin
             unique case (op)
-                SH_SLL:  y = a << shamt;
-                SH_SRL:  y = a >> shamt;
-                SH_SRA:  y = $signed(a) >>> shamt;
+                tp_pkg::SH_SLL:  y = a << shamt;
+                tp_pkg::SH_SRL:  y = a >> shamt;
+                tp_pkg::SH_SRA:  y = $signed(a) >>> shamt;
                 default: y = a;
             endcase
         end
@@ -51,7 +49,7 @@ module tp_shifter
                 running <= 1'b0;
                 acc     <= 32'd0;
                 cnt     <= 5'd0;
-                op_q    <= SH_NONE;
+                op_q    <= tp_pkg::SH_NONE;
             end else if (start && !running) begin
                 // load cycle: always taken, so shamt == 0 is handled uniformly
                 acc     <= a;
@@ -63,9 +61,9 @@ module tp_shifter
                     running <= 1'b0;
                 end else begin
                     unique case (op_q)
-                        SH_SLL:  acc <= {acc[30:0], 1'b0};
-                        SH_SRL:  acc <= {1'b0, acc[31:1]};
-                        SH_SRA:  acc <= {acc[31], acc[31:1]};
+                        tp_pkg::SH_SLL:  acc <= {acc[30:0], 1'b0};
+                        tp_pkg::SH_SRL:  acc <= {1'b0, acc[31:1]};
+                        tp_pkg::SH_SRA:  acc <= {acc[31], acc[31:1]};
                         default: acc <= acc;
                     endcase
                     cnt <= cnt - 5'd1;

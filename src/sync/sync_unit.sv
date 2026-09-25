@@ -19,8 +19,6 @@
 // they constantly do.
 `default_nettype none
 
-import tp_pkg::*;
-
 module sync_unit
 #(
     parameter int NCH   = 8,       // capture channels
@@ -28,7 +26,8 @@ module sync_unit
     parameter int DEPTH = 2,       // event queue depth
     parameter int PTRW  = 1,       // $clog2(DEPTH)
     parameter int FRACW = 24,      // rate accumulator width
-    parameter int FILTW = 0        // capture glitch filter length
+    parameter int FILTW = 0,       // capture glitch filter length
+    parameter int PWW   = 16       // trigger pulse-width counter bits
 ) (
     input  wire  logic            clk,
     input  wire  logic            rst,
@@ -53,7 +52,14 @@ module sync_unit
     input  wire  logic [3:0]      reg_addr,
     input  wire  logic            reg_we,
     input  wire  logic [31:0]     reg_wdata,
-    output logic [31:0]           reg_rdata
+    output logic [31:0]           reg_rdata,
+
+    // The status word and the head of the event queue, as ports. A parent
+    // that wants these on pins must take them from here: reaching into
+    // this module with a hierarchical reference simulates in Icarus and
+    // is rejected by Yosys, so it would fail at hardening.
+    output logic [31:0]           status_out,
+    output logic [31:0]           head_out
 );
 
     // -----------------------------------------------------------------
@@ -186,7 +192,7 @@ module sync_unit
     // -----------------------------------------------------------------
     // Compare / trigger
     // -----------------------------------------------------------------
-    sync_compare #(.NCMP(NCMP)) u_cmp (
+    sync_compare #(.NCMP(NCMP), .PWW(PWW)) u_cmp (
         .clk       (clk),
         .rst       (rst),
         .now       (now),
@@ -216,6 +222,8 @@ module sync_unit
     end
 
     assign evt_pending = ~fifo_empty;
+    assign status_out  = status;
+    assign head_out    = fifo_rdata;
     assign ovf_pin     = fifo_ovf;
 
     // -----------------------------------------------------------------
@@ -224,21 +232,21 @@ module sync_unit
     // ones — that is how you correlate "when the code saw it" against
     // "when the pin moved".
     // -----------------------------------------------------------------
-    assign t_pop   = t_valid && (t_op == TF3_POP);
-    assign t_arm   = t_valid && (t_op == TF3_ARM);
-    assign t_pulse = t_valid && (t_op == TF3_PULSE);
-    assign t_mark  = t_valid && (t_op == TF3_MARK);
-    assign t_ctl   = t_valid && (t_op == TF3_CTL);
+    assign t_pop   = t_valid && (t_op == tp_pkg::TF3_POP);
+    assign t_arm   = t_valid && (t_op == tp_pkg::TF3_ARM);
+    assign t_pulse = t_valid && (t_op == tp_pkg::TF3_PULSE);
+    assign t_mark  = t_valid && (t_op == tp_pkg::TF3_MARK);
+    assign t_ctl   = t_valid && (t_op == tp_pkg::TF3_CTL);
 
     assign sw_push  = t_mark;
     assign sw_wdata = {1'b1, t_rs1[2:0], 1'b1, now[26:0]};
 
     always_comb begin
         unique case (t_op)
-            TF3_TIME: t_rdata = now;
-            TF3_POP:  t_rdata = fifo_empty ? 32'd0 : fifo_rdata;
-            TF3_STAT: t_rdata = status;
-            TF3_MARK: t_rdata = now;
+            tp_pkg::TF3_TIME: t_rdata = now;
+            tp_pkg::TF3_POP:  t_rdata = fifo_empty ? 32'd0 : fifo_rdata;
+            tp_pkg::TF3_STAT: t_rdata = status;
+            tp_pkg::TF3_MARK: t_rdata = now;
             default:  t_rdata = now;
         endcase
     end
@@ -251,34 +259,34 @@ module sync_unit
 
     always_comb begin
         unique case (reg_addr)
-            SR_TIME:  reg_rdata = now;
-            SR_EVENT: reg_rdata = fifo_empty ? 32'd0 : fifo_rdata;
-            SR_STAT:  reg_rdata = status;
+            tp_pkg::SR_TIME:  reg_rdata = now;
+            tp_pkg::SR_EVENT: reg_rdata = fifo_empty ? 32'd0 : fifo_rdata;
+            tp_pkg::SR_STAT:  reg_rdata = status;
             default:  reg_rdata = 32'd0;
         endcase
     end
 
     // Both access paths drive the same strobes.
     always_comb begin
-        fifo_pop   = t_pop   || (mm_re && (reg_addr == SR_EVENT));
-        arm_we     = t_arm   || (mm_we && ((reg_addr == SR_CMP0) ||
-                                           (reg_addr == SR_CMP1)));
+        fifo_pop   = t_pop   || (mm_re && (reg_addr == tp_pkg::SR_EVENT));
+        arm_we     = t_arm   || (mm_we && ((reg_addr == tp_pkg::SR_CMP0) ||
+                                           (reg_addr == tp_pkg::SR_CMP1)));
         arm_time   = t_arm   ? t_rs1 : reg_wdata;
         arm_sel    = t_arm   ? t_rs2[1:0]
-                             : ((reg_addr == SR_CMP1) ? 2'd1 : 2'd0);
-        pulse_we   = t_pulse || (mm_we && (reg_addr == SR_PULSE));
+                             : ((reg_addr == tp_pkg::SR_CMP1) ? 2'd1 : 2'd0);
+        pulse_we   = t_pulse || (mm_we && (reg_addr == tp_pkg::SR_PULSE));
         pulse_mask = t_pulse ? t_rs1[NCMP-1:0] : reg_wdata[NCMP-1:0];
-        pw_we      = (t_ctl && (t_sub == TCTL_PW))   ||
-                     (mm_we && (reg_addr == SR_PW));
+        pw_we      = (t_ctl && (t_sub == tp_pkg::TCTL_PW))   ||
+                     (mm_we && (reg_addr == tp_pkg::SR_PW));
         pw_in      = t_ctl   ? t_rs1 : reg_wdata;
-        cfg_we     = (t_ctl && (t_sub == TCTL_CFG))  ||
-                     (mm_we && (reg_addr == SR_CFG));
+        cfg_we     = (t_ctl && (t_sub == tp_pkg::TCTL_CFG))  ||
+                     (mm_we && (reg_addr == tp_pkg::SR_CFG));
         cfg_in     = t_ctl   ? t_rs1 : reg_wdata;
-        adj_we     = (t_ctl && (t_sub == TCTL_ADJ))  ||
-                     (mm_we && (reg_addr == SR_ADJ));
+        adj_we     = (t_ctl && (t_sub == tp_pkg::TCTL_ADJ))  ||
+                     (mm_we && (reg_addr == tp_pkg::SR_ADJ));
         adj_in     = t_ctl   ? t_rs1 : reg_wdata;
-        rate_we    = (t_ctl && (t_sub == TCTL_RATE)) ||
-                     (mm_we && (reg_addr == SR_RATE));
+        rate_we    = (t_ctl && (t_sub == tp_pkg::TCTL_RATE)) ||
+                     (mm_we && (reg_addr == tp_pkg::SR_RATE));
         rate_in    = t_ctl   ? t_rs1 : reg_wdata;
     end
 

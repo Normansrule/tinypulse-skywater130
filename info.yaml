@@ -1,15 +1,11 @@
 # info.yaml — Tiny Tapeout project metadata for TinyPulse-Skywater130.
 # See https://tinytapeout.com for the current schema.
 #
-# `tiles` is 2x2 because synthesis said so, not because it was estimated.
-# Yosys reports 1373 flip-flops for this configuration. At 19.55 um^2 per
-# sky130 dfxtp_1 that is 26,764 um^2 of flops alone, which is 123% of the
-# usable cell area of a 1x2 tile and 59% of a 2x2. An earlier hand estimate
-# said 1198 flops and 1x2; it was wrong, which is the argument for running
-# `yosys -s syn/synth_check.ys` before believing any area table.
-#
-# This is still not the final word: the real number comes from hardening
-# against the sky130 PDK. Read that area report before you order.
+# `tiles: "4x2"` is MEASURED: 69,866 um^2 of sky130 standard cells.
+#     2x2  154% at 60%   does not fit
+#     3x2  101% at 60%, 87% at 70%   tight
+#     4x2   76% at 60%   fits
+# Reproduce: cd test && make area
 
 project:
   title:        "TinyPulse-Skywater130 time-deterministic RISC-V"
@@ -21,7 +17,7 @@ project:
                                     # At 50 MHz: 21 clocks per sequential
                                     # instruction, 20 ns timestamp resolution.
 
-  tiles:        "2x2"
+  tiles:        "4x2"
 
   top_module:   "tt_um_normansrule_tinypulse"
 

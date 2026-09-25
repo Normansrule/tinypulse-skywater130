@@ -41,11 +41,17 @@ module sync_compare #(
     for (i = 0; i < NCMP; i = i + 1) begin : g_cmp
 
         logic reached, fire;
-        // Compare against the NEXT tick, not this one. The trigger output is
-        // registered, so firing one tick early makes the pin edge land on
-        // exactly the tick that was programmed instead of one after it.
-        // Without this the part has a constant 1-tick offset — harmless but
-        // it makes the datasheet a lie.
+
+        // Fire one tick early, because the trigger output is registered:
+        // that makes the pin edge land on exactly the tick that was
+        // programmed instead of one after it.
+        //
+        // This looks like it costs a second 32-bit adder per channel, and
+        // an earlier version rewrote it as `now - deadline >= -1` to avoid
+        // that. Measured, the rewrite was WORSE: synthesis already shares
+        // the single `now + 1` incrementer across every channel, while the
+        // rewrite needs a 32-input AND tree in each one. It cost about
+        // 1,000 um^2 across three channels. Left as written.
         assign reached = ($signed((now + 32'd1) - deadline[i]) >= 0);
         assign fire    = (armed[i] && reached) ||
                          (pulse_we && pulse_mask[i]);

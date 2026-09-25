@@ -7,8 +7,6 @@
 // on this module. Nothing else changes between them.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_soc
 #(
     // --- core ---
@@ -71,6 +69,7 @@ module tp_soc
     logic [31:0] q_wdata, q_rdata;
     logic [3:0]  q_be;
     logic [2:0]  rd_latency;
+    logic [31:0] sync_status, sync_head;   // no pins left for these here
     logic [31:0] dbg_pc;
     logic        reg_req, reg_we;
     logic [3:0]  reg_addr;
@@ -203,7 +202,9 @@ module tp_soc
         .reg_addr   (reg_addr),
         .reg_we     (reg_we),
         .reg_wdata  (reg_wdata),
-        .reg_rdata  (reg_rdata)
+        .reg_rdata  (reg_rdata),
+        .status_out (sync_status),
+        .head_out   (sync_head)
     );
 
     // A one-clock pulse every time the queue gains an entry: the cheapest
@@ -221,6 +222,6 @@ module tp_soc
 
     // dbg_pc has no pin on a tile; it exists so a testbench or an FPGA build
     // can watch the program counter without reaching into the hierarchy.
-    wire _unused_soc = &{1'b0, dbg_pc, 1'b0};
+    wire _unused_soc = &{1'b0, dbg_pc, sync_status, sync_head, 1'b0};
 
 endmodule : tp_soc

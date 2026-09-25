@@ -5,12 +5,10 @@
 // trapping, because a trap handler costs CSRs and CSRs cost a tile.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_decode
 (
     input  wire logic [31:0] instr,
-    output logic [CTRL_W-1:0] ctrl
+    output logic [tp_pkg::CTRL_W-1:0] ctrl
 );
 
     logic [6:0] opcode;
@@ -51,10 +49,10 @@ module tp_decode
         d_is_time   = 1'b0;
         d_is_fence  = 1'b0;
         d_is_system = 1'b0;
-        d_wb_sel    = WB_ALU;
-        d_alu_op    = ALU_ADD;
-        d_shift_op  = SH_NONE;
-        d_imm_sel   = IMM_NONE;
+        d_wb_sel    = tp_pkg::WB_ALU;
+        d_alu_op    = tp_pkg::ALU_ADD;
+        d_shift_op  = tp_pkg::SH_NONE;
+        d_imm_sel   = tp_pkg::IMM_NONE;
         d_funct3    = funct3;
         d_time_op   = funct3;
         d_time_sub  = funct7;
@@ -62,103 +60,103 @@ module tp_decode
         unique case (opcode)
 
             // ---- U-type -------------------------------------------------
-            OPC_LUI: begin
+            tp_pkg::OPC_LUI: begin
                 d_legal     = 1'b1;
                 d_rf_we     = 1'b1;
-                d_alu_op    = ALU_COPY_B;
+                d_alu_op    = tp_pkg::ALU_COPY_B;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_U;
+                d_imm_sel   = tp_pkg::IMM_U;
             end
 
-            OPC_AUIPC: begin
+            tp_pkg::OPC_AUIPC: begin
                 d_legal     = 1'b1;
                 d_rf_we     = 1'b1;
-                d_alu_op    = ALU_ADD;
+                d_alu_op    = tp_pkg::ALU_ADD;
                 d_alu_a_pc  = 1'b1;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_U;
+                d_imm_sel   = tp_pkg::IMM_U;
             end
 
             // ---- jumps --------------------------------------------------
             // The ALU computes every jump and branch target, so there is no
             // second adder: A = PC (or rs1 for JALR), B = immediate. The link
             // value PC+4 comes from a dedicated incrementer in the core.
-            OPC_JAL: begin
+            tp_pkg::OPC_JAL: begin
                 d_legal     = 1'b1;
                 d_rf_we     = 1'b1;
-                d_wb_sel    = WB_PC4;
+                d_wb_sel    = tp_pkg::WB_PC4;
                 d_is_jal    = 1'b1;
-                d_alu_op    = ALU_ADD;
+                d_alu_op    = tp_pkg::ALU_ADD;
                 d_alu_a_pc  = 1'b1;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_J;
+                d_imm_sel   = tp_pkg::IMM_J;
             end
 
-            OPC_JALR: begin
+            tp_pkg::OPC_JALR: begin
                 d_legal     = (funct3 == 3'b000);
                 d_rf_we     = 1'b1;
-                d_wb_sel    = WB_PC4;
+                d_wb_sel    = tp_pkg::WB_PC4;
                 d_is_jalr   = 1'b1;
-                d_alu_op    = ALU_ADD;
+                d_alu_op    = tp_pkg::ALU_ADD;
                 d_alu_a_pc  = 1'b0;          // A = rs1
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_I;
+                d_imm_sel   = tp_pkg::IMM_I;
             end
 
             // ---- branches -----------------------------------------------
-            OPC_BRANCH: begin
+            tp_pkg::OPC_BRANCH: begin
                 d_legal     = (funct3 != 3'b010) && (funct3 != 3'b011);
                 d_is_branch = 1'b1;
-                d_alu_op    = ALU_ADD;
+                d_alu_op    = tp_pkg::ALU_ADD;
                 d_alu_a_pc  = 1'b1;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_B;
+                d_imm_sel   = tp_pkg::IMM_B;
             end
 
             // ---- loads --------------------------------------------------
-            OPC_LOAD: begin
+            tp_pkg::OPC_LOAD: begin
                 d_legal     = (funct3 == 3'b000) || (funct3 == 3'b001) ||
                                  (funct3 == 3'b010) || (funct3 == 3'b100) ||
                                  (funct3 == 3'b101);
                 d_rf_we     = 1'b1;
-                d_wb_sel    = WB_MEM;
+                d_wb_sel    = tp_pkg::WB_MEM;
                 d_mem_read  = 1'b1;
-                d_alu_op    = ALU_ADD;
+                d_alu_op    = tp_pkg::ALU_ADD;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_I;
+                d_imm_sel   = tp_pkg::IMM_I;
             end
 
             // ---- stores -------------------------------------------------
-            OPC_STORE: begin
+            tp_pkg::OPC_STORE: begin
                 d_legal     = (funct3 == 3'b000) || (funct3 == 3'b001) ||
                                  (funct3 == 3'b010);
                 d_mem_write = 1'b1;
-                d_alu_op    = ALU_ADD;
+                d_alu_op    = tp_pkg::ALU_ADD;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_S;
+                d_imm_sel   = tp_pkg::IMM_S;
             end
 
             // ---- register-immediate -------------------------------------
-            OPC_OPIMM: begin
+            tp_pkg::OPC_OPIMM: begin
                 d_rf_we     = 1'b1;
                 d_alu_b_imm = 1'b1;
-                d_imm_sel   = IMM_I;
+                d_imm_sel   = tp_pkg::IMM_I;
                 d_legal     = 1'b1;
                 unique case (funct3)
-                    3'b000: d_alu_op = ALU_ADD;    // ADDI
-                    3'b010: d_alu_op = ALU_SLT;    // SLTI
-                    3'b011: d_alu_op = ALU_SLTU;   // SLTIU
-                    3'b100: d_alu_op = ALU_XOR;    // XORI
-                    3'b110: d_alu_op = ALU_OR;     // ORI
-                    3'b111: d_alu_op = ALU_AND;    // ANDI
+                    3'b000: d_alu_op = tp_pkg::ALU_ADD;    // ADDI
+                    3'b010: d_alu_op = tp_pkg::ALU_SLT;    // SLTI
+                    3'b011: d_alu_op = tp_pkg::ALU_SLTU;   // SLTIU
+                    3'b100: d_alu_op = tp_pkg::ALU_XOR;    // XORI
+                    3'b110: d_alu_op = tp_pkg::ALU_OR;     // ORI
+                    3'b111: d_alu_op = tp_pkg::ALU_AND;    // ANDI
                     3'b001: begin                     // SLLI
-                        d_shift_op = SH_SLL;
-                        d_wb_sel   = WB_SHIFT;
+                        d_shift_op = tp_pkg::SH_SLL;
+                        d_wb_sel   = tp_pkg::WB_SHIFT;
                         d_legal    = (funct7 == 7'b0000000);
                     end
                     3'b101: begin                     // SRLI / SRAI
-                        d_shift_op = (funct7[5]) ? SH_SRA : SH_SRL;
-                        d_wb_sel   = WB_SHIFT;
+                        d_shift_op = (funct7[5]) ? tp_pkg::SH_SRA : tp_pkg::SH_SRL;
+                        d_wb_sel   = tp_pkg::WB_SHIFT;
                         d_legal    = (funct7 == 7'b0000000) ||
                                         (funct7 == 7'b0100000);
                     end
@@ -167,57 +165,57 @@ module tp_decode
             end
 
             // ---- register-register --------------------------------------
-            OPC_OP: begin
+            tp_pkg::OPC_OP: begin
                 d_rf_we = 1'b1;
                 d_legal = (funct7 == 7'b0000000) ||
                              ((funct7 == 7'b0100000) &&
                               ((funct3 == 3'b000) || (funct3 == 3'b101)));
                 unique case (funct3)
-                    3'b000: d_alu_op = funct7[5] ? ALU_SUB : ALU_ADD;
-                    3'b010: d_alu_op = ALU_SLT;
-                    3'b011: d_alu_op = ALU_SLTU;
-                    3'b100: d_alu_op = ALU_XOR;
-                    3'b110: d_alu_op = ALU_OR;
-                    3'b111: d_alu_op = ALU_AND;
+                    3'b000: d_alu_op = funct7[5] ? tp_pkg::ALU_SUB : tp_pkg::ALU_ADD;
+                    3'b010: d_alu_op = tp_pkg::ALU_SLT;
+                    3'b011: d_alu_op = tp_pkg::ALU_SLTU;
+                    3'b100: d_alu_op = tp_pkg::ALU_XOR;
+                    3'b110: d_alu_op = tp_pkg::ALU_OR;
+                    3'b111: d_alu_op = tp_pkg::ALU_AND;
                     3'b001: begin
-                        d_shift_op = SH_SLL;
-                        d_wb_sel   = WB_SHIFT;
+                        d_shift_op = tp_pkg::SH_SLL;
+                        d_wb_sel   = tp_pkg::WB_SHIFT;
                     end
                     3'b101: begin
-                        d_shift_op = funct7[5] ? SH_SRA : SH_SRL;
-                        d_wb_sel   = WB_SHIFT;
+                        d_shift_op = funct7[5] ? tp_pkg::SH_SRA : tp_pkg::SH_SRL;
+                        d_wb_sel   = tp_pkg::WB_SHIFT;
                     end
                     default: d_legal = 1'b0;
                 endcase
             end
 
             // ---- FENCE / FENCE.I: architecturally a NOP here -------------
-            OPC_FENCE: begin
+            tp_pkg::OPC_FENCE: begin
                 d_legal    = 1'b1;
                 d_is_fence = 1'b1;
             end
 
             // ---- ECALL / EBREAK: halt. No CSRs in this build. ------------
-            OPC_SYSTEM: begin
+            tp_pkg::OPC_SYSTEM: begin
                 d_legal     = (funct3 == 3'b000);
                 d_is_system = 1'b1;
             end
 
             // ---- Xpulse time extension ---------------------------------
-            OPC_CUSTOM0: begin
+            tp_pkg::OPC_CUSTOM0: begin
                 d_legal   = 1'b1;
                 d_is_time = 1'b1;
-                d_wb_sel  = WB_TIME;
+                d_wb_sel  = tp_pkg::WB_TIME;
                 unique case (funct3)
-                    TF3_TIME, TF3_POP, TF3_STAT, TF3_MARK:
+                    tp_pkg::TF3_TIME, tp_pkg::TF3_POP, tp_pkg::TF3_STAT, tp_pkg::TF3_MARK:
                         d_rf_we = 1'b1;           // these produce a result
-                    TF3_WAIT, TF3_ARM, TF3_PULSE:
+                    tp_pkg::TF3_WAIT, tp_pkg::TF3_ARM, tp_pkg::TF3_PULSE:
                         d_rf_we = 1'b0;
-                    TF3_CTL:
-                        d_legal = (funct7 == TCTL_ADJ)  ||
-                                     (funct7 == TCTL_RATE) ||
-                                     (funct7 == TCTL_CFG)  ||
-                                     (funct7 == TCTL_PW);
+                    tp_pkg::TF3_CTL:
+                        d_legal = (funct7 == tp_pkg::TCTL_ADJ)  ||
+                                     (funct7 == tp_pkg::TCTL_RATE) ||
+                                     (funct7 == tp_pkg::TCTL_CFG)  ||
+                                     (funct7 == tp_pkg::TCTL_PW);
                     default: d_legal = 1'b0;
                 endcase
             end

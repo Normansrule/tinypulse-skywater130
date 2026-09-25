@@ -38,6 +38,9 @@ TinyPID, which is where people will look for it.
   - [Sync register map](#sync-register-map)
 - [Microarchitecture](#microarchitecture)
 - [Performance](#performance)
+- [Synthesis](#synthesis)
+- [Place and route](#place-and-route)
+- [Layout](#layout)
 - [Bring-up](#bring-up)
 - [Verification](#verification)
 - [Building and testing](#building-and-testing)
@@ -101,10 +104,12 @@ estimate.
 | Timebase rate trim at 2^23 | exactly 150 ticks per 100 clocks, as specified |
 | Eight channels edging on one clock | all eight queued, one shared timestamp, in channel order |
 | Deadline armed across the 2^32 rollover | fires on the exact tick, 1395 clocks after `TWAIT` was entered |
-| **Total self-checking assertions passing** | **207 / 207** |
+| **Total self-checking assertions passing** | **246 / 246** |
 | cocotb tests passing | **4 / 4** |
 | Verilator `-Wall` lint | **clean** |
 | Yosys synthesis | **elaborates, 1,373 flip-flops, zero latches** |
+| RV32I instructions executed and result-checked | **40 / 40** |
+| Xpulse instructions executed and result-checked | **11 / 11** |
 
 At 50 MHz that is 2.38 million instructions per second sustained on
 straight-line code, and 2.4 million at the tile's rated clock.
@@ -278,11 +283,20 @@ chip-select fix later made necessary — and under-counted fetch.
 That is the argument for `make synth`: it takes thirty seconds and it is the
 difference between ordering the right tile and the wrong one.
 
-**Even 2x2 is not confirmed.** 59% flip-flop utilisation leaves room for the
-combinational logic, but how much room depends on how the ~8,950
-non-flip-flop cells map to sky130 standard cells, and that needs the real
-PDK. `docs/HARDENING.md` walks through getting that number, and lists the
-trim knobs in the order worth turning if it does not close.
+**Measured: 69,866 um^2 against the real sky130 library. 2x2 does not fit.**
+
+| Tile | At 60% utilisation | At 70% | Verdict |
+|---|---:|---:|---|
+| 2x2 | 154% | 132% | does not fit |
+| 3x2 | 101% | 87% | tight |
+| 4x2 | 76% | 65% | fits |
+
+4x2 is the smallest size with room to route; 3x2 is worth attempting since
+it saves two tiles. Flip-flops are only 39% of that total — the
+combinational logic is the larger half, and the register file's two
+16-to-1 read multiplexers are a large part of it.
+
+Reproduce with `cd test && make area`.
 
 | Profile | Tiles | Cost | Parameters |
 |---|---|---|---|
@@ -786,6 +800,136 @@ bad trade; on the 2x2 profile it is worth revisiting.
 
 ---
 
+## Synthesis
+
+Reproduce with `cd test && make synth`, which runs `syn/synth_check.ys`.
+This is a technology-independent elaboration, so the cell counts are
+generic — but the **flip-flop count is exact**, because it is fixed before
+technology mapping.
+
+```
+flip-flops          1,373     (1,369 with hierarchy preserved)
+generic cells      10,071
+inferred latches        0     asserted, not hoped
+```
+
+Zero latches matters: a latch on a tile means an incomplete `always_comb`
+and a timing problem nobody wants to debug in silicon. `syn/synth_check.ys`
+fails the run if one appears.
+
+Per-module flip-flops, which is what decides the tile count:
+
+| Module | Flip-flops | Share |
+|---|---:|---:|
+| `tp_regfile` | 512 | 37% |
+| `qspi_ctrl` | 165 | 12% |
+| `sync_compare` (3 channels) | 163 | 12% |
+| `tp_fetch` | 133 | 10% |
+| `tp_core` | 115 | 8% |
+| `sync_timebase` | 81 | 6% |
+| `sync_event_fifo` | 70 | 5% |
+| `sync_unit` | 60 | 4% |
+| `tp_shifter` | 40 | 3% |
+| `sync_capture` | 24 | 2% |
+| `tp_soc`, `tp_bus` | 6 | – |
+| **Total** | **1,369** | |
+
+**Requires Yosys 0.44 or newer.** Older builds cannot parse file-scope
+`import` and will fail on the first module. If `yosys -V` reports less than
+that, `pip install --break-system-packages yowasp-yosys` gets a current
+build.
+
+---
+
+## Place and route
+
+**Not yet run. This section is a placeholder and the numbers below are
+blank on purpose — do not cite them until they are filled in.**
+
+Place and route needs the sky130 PDK and the LibreLane flow, which means it
+has to run on a machine with the PDK installed. `docs/HARDENING.md` is the
+full walkthrough. Once it completes, fill in the table from
+`runs/<latest>/reports/`:
+
+| Quantity | Value | Where to read it |
+|---|---|---|
+| Standard cells after mapping | *(fill in)* | `reports/synthesis/*stat*.rpt` |
+| Total cell area (µm²) | *(fill in)* | same |
+| Die area / tile count | *(fill in)* | floorplan log |
+| Core utilisation | *(fill in)* | floorplan log; above ~70% routing gets hard |
+| Setup worst negative slack | *(fill in)* | `reports/signoff/*sta*.rpt` — **must be positive** |
+| Setup total negative slack | *(fill in)* | same — should be zero |
+| Hold worst slack | *(fill in)* | same — **must be positive** |
+| Achieved clock | *(fill in)* | derived from setup slack |
+| Critical path | *(fill in)* | STA report |
+| DRC violations | *(fill in)* | **must be zero** |
+| LVS violations | *(fill in)* | **must be zero** |
+| Antenna violations | *(fill in)* | a few auto-fixed is normal |
+
+Two things to check rather than skim:
+
+**The critical path should be** register file read → the 33-bit adder in
+`tp_alu` → writeback multiplexer → register file write. The whole
+microarchitecture is arranged to put it there: the shifter, the branch
+comparator and target formation are all deliberately off that path. If STA
+reports something else as critical, an assumption in the
+[Microarchitecture](#microarchitecture) section is wrong and it is worth
+chasing rather than papering over.
+
+**Compare the flip-flop count** against the 1,373 above. A large
+disagreement means a configuration difference, not a rounding difference.
+
+To generate it:
+
+```bash
+cd ~/tinypulse-skywater130/test && make lint && make sim && make synth
+# then follow docs/HARDENING.md
+```
+
+---
+
+## Layout
+
+**No render yet.** A GDSII layout only exists after place and route, so
+this section fills in at the same time as the one above.
+
+Once the flow has produced a GDS:
+
+```bash
+sudo apt install klayout
+
+klayout -e -nn ~/.volare/sky130A/libs.tech/klayout/tech/sky130A.lyt \
+        runs/<latest>/final/gds/tt_um_normansrule_tinypulse.gds
+```
+
+The `.lyt` gives KLayout the sky130 layer colours; without it every layer
+renders the same shade and the image is useless.
+
+To export an image for this README: **File → Save View As Image**, PNG,
+around 2000 px wide, then save it as `docs/images/layout.png` and replace
+this paragraph with:
+
+```markdown
+![TinyPulse-Skywater130 layout](docs/images/layout.png)
+```
+
+What to look at, rather than just admiring it:
+
+1. **The outline** — the design must sit inside the tile boundary with
+   power rails reaching the edges where the harness expects them.
+2. **Density** — even is good; large empty regions beside congested ones
+   mean placement struggled.
+3. **The register file** — 512 flip-flops, 37% of the design. It should
+   appear as a large regular block. Smeared across the whole tile means
+   routing is fighting it.
+4. **Metal 1 and metal 2 congestion** — turn off the upper layers and look
+   for areas where the lower ones are completely full.
+
+Use the hierarchy browser in the left panel to jump straight to
+`u_soc.g_cpu.u_core.u_rf`.
+
+---
+
 ## Bring-up
 
 **Read this section before you power the board.** Most of it is one setting.
@@ -862,13 +1006,17 @@ not verification.
 
 | Testbench | Checks | What it covers |
 |---|---:|---|
-| `test/tb_unit.sv` | 65 | Each block standalone |
+| `test/tb_unit.sv` | 88 | Each block standalone |
 | `test/tb_soc.sv` | 12 | Boots a program, checks trigger timing |
 | `test/tb_isa.sv` | 51 | Every RV32I instruction against expected results |
 | `test/tb_stress.sv` | 18 | Simultaneous capture, queue overflow, rollover |
 | `test/tb_wrap.sv` | 10 | System-level 2^32 rollover |
+| `test/tb_xpulse.sv` | 16 | All eleven Xpulse instructions executed |
 | `test/tb_profile.sv` | 51 | The whole ISA test against the 2x2 profile |
-| **Total** | **207** | **all passing** |
+| **Total** | **246** | **all passing** |
+
+Full coverage matrix, claim-by-claim traceability and the complete list of
+what has *not* been verified: **`docs/VERIFICATION.md`**.
 
 Verilator `--lint-only -Wall` is clean, with no waivers. The four cocotb
 tests in `test/test.py` pass as well (`cd test && make`), and
@@ -985,7 +1133,7 @@ dead silicon.
 ```bash
 sudo apt install iverilog verilator
 cd test
-make sim          # all six self-checking testbenches, 207 assertions
+make sim          # all seven self-checking testbenches, 246 assertions
 make lint         # Verilator -Wall, must be clean
 make synth        # Yosys elaboration and the real flip-flop count
 ```
@@ -998,11 +1146,12 @@ yowasp-yosys` gets a current build.
 Individually:
 
 ```bash
-make unit         # 65 block-level checks
+make unit         # 88 block-level checks
 make soc          # 12 system checks: trigger timing against a real program
 make isa          # 51 checks: every RV32I instruction vs. expected results
 make stress       # 18 checks: simultaneous capture, overflow, rollover
 make wrap         # 10 checks: TWAIT and compare across the 2^32 wrap
+make xpulse       # 16 checks: every Xpulse instruction executed
 make profile      # the ISA test against the 2x2 build profile
 make prog         # regenerate all three .hex programs from sw/
 ```
@@ -1044,7 +1193,9 @@ tinypulse-skywater130/
 ├── info.yaml                          Tiny Tapeout metadata and pinout
 ├── docs/
 │   ├── info.md                        the datasheet page
-│   └── HARDENING.md                   synthesis, place and route, KLayout
+│   ├── HARDENING.md                   synthesis, place and route, KLayout
+│   ├── VERIFICATION.md                coverage matrix and what is unproven
+│   └── images/                        put the KLayout render here
 ├── syn/
 │   ├── synth_check.ys                 Yosys elaboration + flop count
 │   └── stat.txt                       the last run's statistics
@@ -1081,6 +1232,7 @@ tinypulse-skywater130/
 │   ├── tb_isa.sv                      51 instruction-set checks
 │   ├── tb_stress.sv                   18 simultaneous-capture and wrap checks
 │   ├── tb_wrap.sv                     10 system-level rollover checks
+│   ├── tb_xpulse.sv                   16 Xpulse instruction checks
 │   ├── tb_profile.sv                  the ISA test on the 2x2 profile
 │   ├── qspi_model.sv                  behavioural flash and PSRAM
 │   ├── prog.hex                       the trigger-timing program
@@ -1093,6 +1245,7 @@ tinypulse-skywater130/
     ├── mkprog.py                      the tiny assembler
     ├── mkisa.py                       ISA program + independent expectations
     ├── mkwrap.py                      the rollover program
+    ├── mkxpulse.py                    the Xpulse coverage program
     ├── crt0.S                         reset entry
     ├── link.ld                        flash / PSRAM memory map
     ├── camera_sync.c                  worked example

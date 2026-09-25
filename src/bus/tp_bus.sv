@@ -14,8 +14,6 @@
 // single clock.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_bus
 (
     input  wire  logic        clk,
@@ -59,9 +57,9 @@ module tp_bus
     assign i_dev = imem_addr[31:28];
 
     logic d_is_sync, d_is_ext, i_is_ext;
-    assign d_is_sync = (d_dev == DEV_SYNC);
-    assign d_is_ext  = (d_dev == DEV_FLASH) || (d_dev == DEV_PSRAM);
-    assign i_is_ext  = (i_dev == DEV_FLASH) || (i_dev == DEV_PSRAM);
+    assign d_is_sync = (d_dev == tp_pkg::DEV_SYNC);
+    assign d_is_ext  = (d_dev == tp_pkg::DEV_FLASH) || (d_dev == tp_pkg::DEV_PSRAM);
+    assign i_is_ext  = (i_dev == tp_pkg::DEV_FLASH) || (i_dev == tp_pkg::DEV_PSRAM);
 
     // ---- sync unit path: single cycle ----
     assign reg_req   = dmem_req && d_is_sync;
@@ -101,7 +99,7 @@ module tp_bus
     assign q_we    = use_data ? dmem_we         : 1'b0;
     assign q_wdata = dmem_wdata;
     assign q_be    = use_data ? dmem_be         : 4'b1111;
-    assign q_dev   = use_data ? (d_dev == DEV_PSRAM) : (i_dev == DEV_PSRAM);
+    assign q_dev   = use_data ? (d_dev == tp_pkg::DEV_PSRAM) : (i_dev == tp_pkg::DEV_PSRAM);
 
     // ---- responses ----
     assign imem_rvalid = q_rvalid && !owner;

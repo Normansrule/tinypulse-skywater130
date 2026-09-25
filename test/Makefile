@@ -5,11 +5,13 @@
 #                   (no cocotb needed; these are the ones to run first)
 #   make lint       Verilator -Wall, must be clean
 #   make synth      Yosys elaboration + real flip-flop count
+#   make area LIB=<sky130 .lib>   REAL sky130 cell area vs every tile size
 #   make unit       block-level checks
 #   make soc        system test: boots a program, checks trigger timing
 #   make isa        all 40 RV32I instructions against expected results
 #   make stress     simultaneous capture, queue overflow, 2^32 rollover
 #   make wrap       system-level rollover: TWAIT across the wrap
+#   make xpulse     all eleven Xpulse instructions executed
 #   make profile    the same ISA test against the 2x2 build profile
 #   make prog       regenerate the .hex programs
 
@@ -47,9 +49,9 @@ TOPLEVEL = tb
 MODULE   = test
 
 # --- pure Verilog, no cocotb ------------------------------------------
-.PHONY: sim lint synth unit soc isa stress wrap profile prog clean-sim
+.PHONY: sim lint synth area unit soc isa stress wrap xpulse profile prog clean-sim
 
-sim: unit soc isa stress wrap profile
+sim: unit soc isa stress wrap xpulse profile
 	@echo ""
 	@echo "all testbenches finished — check for FAILED above"
 
@@ -60,12 +62,16 @@ sim: unit soc isa stress wrap profile
 # frontend -- and that frontend is what hardens the chip. Namespace
 # tidiness loses to being able to synthesize.
 lint:
-	verilator --lint-only -Wall -Wno-IMPORTSTAR --timing $(RTL) --top-module tt_um_normansrule_tinypulse
+	verilator --lint-only -Wall --timing $(RTL) --top-module tt_um_normansrule_tinypulse
+
+area:
+	cd .. && bash syn/area_sky130.sh $(LIB)
 
 prog:
 	python3 ../sw/mkprog.py prog.hex
 	python3 ../sw/mkisa.py  isa.hex
 	python3 ../sw/mkwrap.py wrap.hex
+	python3 ../sw/mkxpulse.py xpulse.hex
 
 unit:
 	iverilog -g2012 -o tb_unit.vvp -s tb_unit $(RTL) tb_unit.sv
@@ -86,6 +92,10 @@ stress:
 wrap: prog
 	iverilog -g2012 -o tb_wrap.vvp -s tb_wrap $(RTL) qspi_model.sv tb_wrap.sv
 	vvp tb_wrap.vvp
+
+xpulse: prog
+	iverilog -g2012 -o tb_xpulse.vvp -s tb_xpulse $(RTL) qspi_model.sv tb_xpulse.sv
+	vvp tb_xpulse.vvp
 
 profile: prog
 	iverilog -g2012 -o tb_profile.vvp -s tb_profile $(RTL) qspi_model.sv tb_profile.sv

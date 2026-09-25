@@ -21,8 +21,6 @@
 // formation are all off that path by construction.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_core
 #(
     parameter int          NREG     = 16,           // 16 = RV32E
@@ -119,7 +117,7 @@ module tp_core
     // -----------------------------------------------------------------
     // Decode
     // -----------------------------------------------------------------
-    logic [CTRL_W-1:0] ctrl;
+    logic [tp_pkg::CTRL_W-1:0] ctrl;
     logic [31:0] imm;
 
     // Unpacked control fields. This concatenation mirrors the one at the
@@ -167,13 +165,13 @@ module tp_core
 
     logic uses_rs1, uses_rs2, spec_violation;
     always_comb begin
-        uses_rs1 = !((if_instr[6:0] == OPC_LUI)   ||
-                     (if_instr[6:0] == OPC_AUIPC) ||
-                     (if_instr[6:0] == OPC_JAL));
-        uses_rs2 =  ((if_instr[6:0] == OPC_OP)     ||
-                     (if_instr[6:0] == OPC_BRANCH) ||
-                     (if_instr[6:0] == OPC_STORE)  ||
-                     (c_is_time && (c_time_op == TF3_ARM)));
+        uses_rs1 = !((if_instr[6:0] == tp_pkg::OPC_LUI)   ||
+                     (if_instr[6:0] == tp_pkg::OPC_AUIPC) ||
+                     (if_instr[6:0] == tp_pkg::OPC_JAL));
+        uses_rs2 =  ((if_instr[6:0] == tp_pkg::OPC_OP)     ||
+                     (if_instr[6:0] == tp_pkg::OPC_BRANCH) ||
+                     (if_instr[6:0] == tp_pkg::OPC_STORE)  ||
+                     (c_is_time && (c_time_op == tp_pkg::TF3_ARM)));
         if (AW >= 5)
             spec_violation = 1'b0;
         else
@@ -327,11 +325,11 @@ module tp_core
 
     // which multi-cycle path does this instruction take?
     logic go_shift, go_mem, go_wait;
-    assign go_shift = (c_shift_op != SH_NONE) && sh_busy;
+    assign go_shift = (c_shift_op != tp_pkg::SH_NONE) && sh_busy;
     assign go_mem   = c_mem_read || c_mem_write;
-    assign go_wait  = c_is_time && (c_time_op == TF3_WAIT) && !twait_now;
+    assign go_wait  = c_is_time && (c_time_op == tp_pkg::TF3_WAIT) && !twait_now;
 
-    assign sh_start = fire && (c_shift_op != SH_NONE);
+    assign sh_start = fire && (c_shift_op != tp_pkg::SH_NONE);
 
     // -----------------------------------------------------------------
     // Sync unit strobe: only ops with side effects pulse it
@@ -340,7 +338,7 @@ module tp_core
         t_valid = 1'b0;
         if (fire && c_is_time) begin
             unique case (c_time_op)
-                TF3_POP, TF3_ARM, TF3_PULSE, TF3_MARK, TF3_CTL: t_valid = 1'b1;
+                tp_pkg::TF3_POP, tp_pkg::TF3_ARM, tp_pkg::TF3_PULSE, tp_pkg::TF3_MARK, tp_pkg::TF3_CTL: t_valid = 1'b1;
                 default:                                        t_valid = 1'b0;
             endcase
         end
@@ -357,11 +355,11 @@ module tp_core
     logic [31:0] wb_single;
     always_comb begin
         unique case (c_wb_sel)
-            WB_ALU:   wb_single = alu_y;
-            WB_SHIFT: wb_single = sh_y;
-            WB_MEM:   wb_single = lsu_load;
-            WB_PC4:   wb_single = if_pc + 32'd4;
-            WB_TIME:  wb_single = t_rdata;
+            tp_pkg::WB_ALU:   wb_single = alu_y;
+            tp_pkg::WB_SHIFT: wb_single = sh_y;
+            tp_pkg::WB_MEM:   wb_single = lsu_load;
+            tp_pkg::WB_PC4:   wb_single = if_pc + 32'd4;
+            tp_pkg::WB_TIME:  wb_single = t_rdata;
             default:  wb_single = alu_y;
         endcase
     end

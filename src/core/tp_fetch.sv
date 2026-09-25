@@ -15,8 +15,6 @@
 // differ, which is what makes the predictor pay off.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_fetch
 #(
     parameter logic [31:0] RESET_PC = 32'h0000_0000,

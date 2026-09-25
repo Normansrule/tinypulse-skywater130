@@ -4,8 +4,6 @@
 // 32-bit carry chain. That is what sets Fmax for the whole core.
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_alu
 (
     input  wire  logic [31:0] a,
@@ -19,7 +17,7 @@ module tp_alu
     logic        slt_bit, sltu_bit;
 
     always_comb begin
-        sub_mode = (op == ALU_SUB) || (op == ALU_SLT) || (op == ALU_SLTU);
+        sub_mode = (op == tp_pkg::ALU_SUB) || (op == tp_pkg::ALU_SLT) || (op == tp_pkg::ALU_SLTU);
         addsub   = {1'b0, a} + {1'b0, (sub_mode ? ~b : b)} + {32'd0, sub_mode};
 
         // signed less-than: if the signs differ, a's sign decides (overflow-safe)
@@ -28,15 +26,15 @@ module tp_alu
         sltu_bit = ~addsub[32];
 
         unique case (op)
-            ALU_ADD:    y = addsub[31:0];
-            ALU_SUB:    y = addsub[31:0];
-            ALU_AND:    y = a & b;
-            ALU_OR:     y = a | b;
-            ALU_XOR:    y = a ^ b;
-            ALU_SLT:    y = {31'd0, slt_bit};
-            ALU_SLTU:   y = {31'd0, sltu_bit};
-            ALU_COPY_B: y = b;
-            ALU_COPY_A: y = a;
+            tp_pkg::ALU_ADD:    y = addsub[31:0];
+            tp_pkg::ALU_SUB:    y = addsub[31:0];
+            tp_pkg::ALU_AND:    y = a & b;
+            tp_pkg::ALU_OR:     y = a | b;
+            tp_pkg::ALU_XOR:    y = a ^ b;
+            tp_pkg::ALU_SLT:    y = {31'd0, slt_bit};
+            tp_pkg::ALU_SLTU:   y = {31'd0, sltu_bit};
+            tp_pkg::ALU_COPY_B: y = b;
+            tp_pkg::ALU_COPY_A: y = a;
             default:    y = 32'd0;
         endcase
     end

@@ -14,8 +14,6 @@
 // BIMODAL=1: NENT 2-bit saturating counters indexed by pc[NIDX+1:2].
 `default_nettype none
 
-import tp_pkg::*;
-
 module tp_bpred
 #(
     parameter bit BIMODAL = 1'b0,
@@ -40,8 +38,8 @@ module tp_bpred
     logic        is_branch, is_jal;
 
     assign opcode    = instr[6:0];
-    assign is_branch = (opcode == OPC_BRANCH);
-    assign is_jal    = (opcode == OPC_JAL);
+    assign is_branch = (opcode == tp_pkg::OPC_BRANCH);
+    assign is_jal    = (opcode == tp_pkg::OPC_JAL);
 
     assign imm_b = {{19{instr[31]}}, instr[31], instr[7],
                     instr[30:25], instr[11:8], 1'b0};

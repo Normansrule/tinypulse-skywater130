@@ -175,6 +175,77 @@ module tb_unit;
         .evt(cp_evt), .evt_rise(cp_rise), .level(cp_level)
     );
 
+    // =================================================================
+    // Register file. The no-bypass behaviour below is the regression
+    // test for the combinational loop that Verilator caught: a
+    // write-through bypass here fed an instruction its own result as
+    // its own operand.
+    // =================================================================
+    reg         rf_we = 1'b0;
+    reg  [3:0]  rf_waddr = 4'd0, rf_ra1 = 4'd0, rf_ra2 = 4'd0;
+    reg  [31:0] rf_wdata = 32'd0;
+    wire [31:0] rf_rd1, rf_rd2;
+
+    tp_regfile #(.NREG(16), .AW(4)) u_rf (
+        .clk(clk), .we(rf_we), .waddr(rf_waddr), .wdata(rf_wdata),
+        .raddr1(rf_ra1), .raddr2(rf_ra2), .rdata1(rf_rd1), .rdata2(rf_rd2)
+    );
+
+    task rf_write(input [3:0] a, input [31:0] d);
+        begin
+            @(negedge clk);
+            rf_we = 1'b1; rf_waddr = a; rf_wdata = d;
+            @(negedge clk);
+            rf_we = 1'b0;
+        end
+    endtask
+
+    // =================================================================
+    // Hazard policy (pure combinational)
+    // =================================================================
+    reg  hz_if_valid, hz_ex_ready, hz_shift, hz_mem, hz_wait, hz_halt, hz_redir;
+    wire hz_if_ready, hz_if_flush, hz_ex_stall;
+
+    tp_hazard u_hz (
+        .if_valid(hz_if_valid), .ex_ready(hz_ex_ready),
+        .shift_busy(hz_shift), .mem_busy(hz_mem), .wait_busy(hz_wait),
+        .halted(hz_halt), .redirect(hz_redir),
+        .if_ready(hz_if_ready), .if_flush(hz_if_flush), .ex_stall(hz_ex_stall)
+    );
+
+    task hz_set(input v, input r, input sh, input mm, input wt,
+                input hl, input rd);
+        begin
+            hz_if_valid = v; hz_ex_ready = r; hz_shift = sh; hz_mem = mm;
+            hz_wait = wt; hz_halt = hl; hz_redir = rd;
+            #1;
+        end
+    endtask
+
+    // =================================================================
+    // Bimodal branch predictor (the 2x2 profile's setting, which no
+    // other directed test exercises)
+    // =================================================================
+    reg         bp_rst = 1'b1, bp_upd = 1'b0, bp_taken = 1'b0;
+    reg  [31:0] bp_instr = 32'd0, bp_pc = 32'd0, bp_upd_pc = 32'd0;
+    wire        bp_pred;
+    wire [31:0] bp_target;
+
+    tp_bpred #(.BIMODAL(1'b1), .NENT(16), .NIDX(4)) u_bp (
+        .clk(clk), .rst(bp_rst), .instr(bp_instr), .pc(bp_pc),
+        .predict_taken(bp_pred), .predict_target(bp_target),
+        .upd_valid(bp_upd), .upd_pc(bp_upd_pc), .upd_taken(bp_taken)
+    );
+
+    task bp_train(input [31:0] pc_in, input taken);
+        begin
+            @(negedge clk);
+            bp_upd = 1'b1; bp_upd_pc = pc_in; bp_taken = taken;
+            @(negedge clk);
+            bp_upd = 1'b0;
+        end
+    endtask
+
     integer i, latency;
     reg [31:0] t_mark;
 
@@ -367,6 +438,99 @@ module tb_unit;
         @(negedge clk); cp_pin[3] = 1'b0;
         repeat (4) @(negedge clk);
         chk(cp_evt === 8'h00, "falling edge ignored when not selected");
+
+        // -------------------------------------------------------------
+        section("tp_regfile");
+        rf_write(4'd5, 32'hDEAD_BEEF);
+        @(negedge clk); rf_ra1 = 4'd5; #1;
+        chk(rf_rd1 === 32'hDEAD_BEEF, "write then read back");
+
+        rf_write(4'd0, 32'h1234_5678);
+        @(negedge clk); rf_ra1 = 4'd0; #1;
+        chk(rf_rd1 === 32'd0, "x0 ignores writes and always reads zero");
+
+        rf_write(4'd7, 32'hAAAA_1111);
+        rf_write(4'd9, 32'h5555_2222);
+        @(negedge clk); rf_ra1 = 4'd7; rf_ra2 = 4'd9; #1;
+        chk(rf_rd1 === 32'hAAAA_1111 && rf_rd2 === 32'h5555_2222,
+            "both read ports work independently");
+
+        // THE regression: a read of the register being written in the
+        // same cycle must return the OLD value. A bypass here is a
+        // combinational loop in this pipeline.
+        @(negedge clk);
+        rf_we = 1'b1; rf_waddr = 4'd7; rf_wdata = 32'hBBBB_2222;
+        rf_ra1 = 4'd7;
+        #1;
+        chk(rf_rd1 === 32'hAAAA_1111,
+            "same-cycle read returns the OLD value (no write-through bypass)");
+        if (rf_rd1 !== 32'hAAAA_1111)
+            $display("        got %08x, wanted AAAA1111 — the bypass is back",
+                     rf_rd1);
+        @(negedge clk); rf_we = 1'b0; #1;
+        chk(rf_rd1 === 32'hBBBB_2222, "the write lands on the next cycle");
+
+        // -------------------------------------------------------------
+        section("tp_hazard");
+        hz_set(1,1,0,0,0,0,0);
+        chk(hz_if_ready && !hz_ex_stall, "idle: fetch is consumed");
+        hz_set(0,1,0,0,0,0,0);
+        chk(!hz_if_ready, "no instruction means nothing is consumed");
+        hz_set(1,0,0,0,0,0,0);
+        chk(!hz_if_ready, "execute not ready blocks the handshake");
+        hz_set(1,1,1,0,0,0,0);
+        chk(hz_ex_stall && !hz_if_ready, "shifter busy stalls execute");
+        hz_set(1,1,0,1,0,0,0);
+        chk(hz_ex_stall && !hz_if_ready, "memory busy stalls execute");
+        hz_set(1,1,0,0,1,0,0);
+        chk(hz_ex_stall && !hz_if_ready, "TWAIT stalls execute");
+        hz_set(1,1,0,0,0,1,0);
+        chk(hz_ex_stall && !hz_if_ready, "halted stalls execute");
+        hz_set(1,1,0,0,0,0,1);
+        chk(hz_if_flush, "redirect raises flush");
+        hz_set(1,1,0,0,0,0,0);
+        chk(!hz_if_flush, "no redirect, no flush");
+
+        // -------------------------------------------------------------
+        section("tp_bpred (bimodal)");
+        @(negedge clk); bp_rst = 1'b0;
+        // a FORWARD branch: static prediction would say not-taken
+        bp_instr = 32'h0020_8463;      // beq x1, x2, +8
+        bp_pc    = 32'h0000_0040;
+        #1;
+        chk(bp_pred === 1'b0, "starts weakly not-taken");
+        chk(bp_target === 32'h0000_0048, "target is pc + 8");
+
+        // Standard two-bit counter: 00 strong NT, 01 weak NT, 10 weak T,
+        // 11 strong T, and the prediction is the top bit. So one taken
+        // update from 01 reaches 10 and already predicts taken.
+        bp_train(32'h0000_0040, 1'b1);
+        #1;
+        chk(bp_pred === 1'b1, "one taken update reaches weakly-taken (01 -> 10)");
+        bp_train(32'h0000_0040, 1'b1);
+        bp_train(32'h0000_0040, 1'b1);
+        #1;
+        chk(bp_pred === 1'b1, "counter saturates at strongly-taken and stays");
+
+        bp_train(32'h0000_0040, 1'b0);
+        #1;
+        chk(bp_pred === 1'b1, "one not-taken update (11 -> 10) still predicts taken");
+        bp_train(32'h0000_0040, 1'b0);
+        #1;
+        chk(bp_pred === 1'b0, "a second not-taken update (10 -> 01) flips it back");
+
+        // an unconditional jump is always predicted taken
+        bp_instr = 32'h0100_006F;      // jal x0, +16
+        bp_pc    = 32'h0000_0040;
+        #1;
+        chk(bp_pred === 1'b1, "JAL is always predicted taken");
+        chk(bp_target === 32'h0000_0050, "JAL target is pc + 16");
+
+        // a non-branch falls through
+        bp_instr = 32'h0000_0013;      // nop
+        #1;
+        chk(bp_pred === 1'b0 && bp_target === 32'h0000_0044,
+            "a non-branch predicts pc + 4");
 
         // -------------------------------------------------------------
         $display("\n%0d checks, %0d failures", checks, errors);
