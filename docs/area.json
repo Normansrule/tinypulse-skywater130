@@ -1,0 +1,26 @@
+{
+  "tile": "2x2",
+  "tile_um": [
+    334.88,
+    225.76
+  ],
+  "total_cell_area_um2": 51999.9,
+  "utilization_of_core_area": 0.7256,
+  "instances": 5523,
+  "fill_instances": 6794,
+  "blocks": {
+    "Register file (15 x 32 bits)": 11285.8,
+    "CPU core (nibble-serial RV32E)": 10157.2,
+    "QSPI memory controller": 6226.0,
+    "Deadline comparators": 5312.6,
+    "Timebase + rate trim": 4539.4,
+    "Timing unit control": 4383.0,
+    "UART": 2706.3,
+    "Event queue": 2528.7,
+    "GPIO registers": 1402.6,
+    "Bus": 1300.0,
+    "Boot ROM (UART bootloader)": 1009.7,
+    "Capture channels": 890.9,
+    "Glue": 257.7
+  }
+}

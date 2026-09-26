@@ -40,70 +40,12 @@ package tp_pkg;
     localparam logic [6:0] TCTL_PW   = 7'd3;    // TPW   rs1 — trigger pulse width
 
     // ---------------------------------------------------------------
-    // Datapath control encodings
-    //
-    // These are localparams on plain vectors rather than SystemVerilog
-    // enums and structs, and that is a synthesis requirement, not a style
-    // choice. Yosys's native Verilog frontend — which is what the
-    // Tiny Tapeout hardening flow runs — accepts packages and file-scope
-    // `import`, but it does NOT accept a typedef'd enum or packed struct
-    // used as a port or as a variable declaration. A design written that
-    // way needs the yosys-slang plugin to synthesize at all. Depending on
-    // a plugin being present in somebody else's continuous integration is
-    // not a risk worth taking for a tapeout, so the types are spelled out.
+    // No datapath control encodings live here any more. The 32-bit core
+    // needed a 37-bit control bundle passed from decode to execute; the
+    // nibble core decodes straight from the instruction register as it
+    // executes, so there is nothing to pack. Everything below is shared
+    // with software: the memory map and the register offsets.
     // ---------------------------------------------------------------
-
-    // ALU operation, ALU_W bits. Shifts are NOT here: they live in
-    // tp_shifter so the ALU critical path is one 33-bit adder.
-    localparam logic [3:0] ALU_ADD    = 4'd0;
-    localparam logic [3:0] ALU_SUB    = 4'd1;
-    localparam logic [3:0] ALU_AND    = 4'd2;
-    localparam logic [3:0] ALU_OR     = 4'd3;
-    localparam logic [3:0] ALU_XOR    = 4'd4;
-    localparam logic [3:0] ALU_SLT    = 4'd5;
-    localparam logic [3:0] ALU_SLTU   = 4'd6;
-    localparam logic [3:0] ALU_COPY_B = 4'd7;   // LUI
-    localparam logic [3:0] ALU_COPY_A = 4'd8;   // pass-through for time ops
-
-    // Shift operation
-    localparam logic [1:0] SH_NONE = 2'd0;
-    localparam logic [1:0] SH_SLL  = 2'd1;
-    localparam logic [1:0] SH_SRL  = 2'd2;
-    localparam logic [1:0] SH_SRA  = 2'd3;
-
-    // Immediate format select
-    localparam logic [2:0] IMM_I    = 3'd0;
-    localparam logic [2:0] IMM_S    = 3'd1;
-    localparam logic [2:0] IMM_B    = 3'd2;
-    localparam logic [2:0] IMM_U    = 3'd3;
-    localparam logic [2:0] IMM_J    = 3'd4;
-    localparam logic [2:0] IMM_NONE = 3'd5;
-
-    // Writeback source select
-    localparam logic [2:0] WB_ALU   = 3'd0;
-    localparam logic [2:0] WB_SHIFT = 3'd1;
-    localparam logic [2:0] WB_MEM   = 3'd2;
-    localparam logic [2:0] WB_PC4   = 3'd3;
-    localparam logic [2:0] WB_TIME  = 3'd4;
-
-    // ---------------------------------------------------------------
-    // Control bundle.
-    //
-    // tp_decode packs these fields into one CTRL_W-bit vector and
-    // tp_core unpacks them again. The two concatenations must list the
-    // fields in the SAME order, which is the order below, most significant
-    // first. That is one place to get wrong instead of nineteen, and the
-    // test suite catches a mismatch immediately.
-    //
-    //   [36]     legal        [35]     rf_we        [34:32] wb_sel
-    //   [31:28]  alu_op       [27:26]  shift_op     [25]    alu_a_pc
-    //   [24]     alu_b_imm    [23:21]  imm_sel      [20]    is_branch
-    //   [19]     is_jal       [18]     is_jalr      [17]    mem_read
-    //   [16]     mem_write    [15:13]  funct3       [12]    is_time
-    //   [11:9]   time_op      [8:2]    time_sub     [1]     is_fence
-    //   [0]      is_system
-    // ---------------------------------------------------------------
-    localparam int CTRL_W = 37;
 
     // ---------------------------------------------------------------
     // Sync unit register offsets (word index within 0x2000_0000)
@@ -128,5 +70,7 @@ package tp_pkg;
     localparam logic [3:0] DEV_FLASH = 4'h0;  // 0x0xxx_xxxx external QSPI flash
     localparam logic [3:0] DEV_PSRAM = 4'h1;  // 0x1xxx_xxxx external QSPI PSRAM
     localparam logic [3:0] DEV_SYNC  = 4'h2;  // 0x2xxx_xxxx sync unit registers
+    localparam logic [3:0] DEV_PERIPH= 4'h3;  // 0x3xxx_xxxx GPIO and UART
+    localparam logic [3:0] DEV_ROM   = 4'h4;  // 0x4xxx_xxxx boot ROM (UART bootloader)
 
 endpackage : tp_pkg

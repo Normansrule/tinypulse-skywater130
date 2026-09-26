@@ -1,8 +1,8 @@
 // tp_bus.sv — address decode and arbitration between the two masters.
 //
 // Masters : instruction fetch (read only) and the load/store unit.
-// Slaves  : the external QSPI controller (flash + PSRAM) and the sync unit
-//           register file.
+// Slaves  : the external QSPI controller (flash + PSRAM), the sync unit
+//           registers, and the GPIO/UART peripheral registers.
 //
 // Policy: the data port wins. Fetch is speculative and restartable, a load
 // is not, and the core is already stalled waiting for it. Whoever starts a
@@ -10,8 +10,8 @@
 // mux steady so a redirect changing the fetch PC mid-transaction cannot
 // corrupt an address already on the wire.
 //
-// Sync unit accesses never touch the QSPI controller and complete in a
-// single clock.
+// Sync unit and peripheral accesses never touch the QSPI controller and
+// complete in a single clock.
 `default_nettype none
 
 module tp_bus
@@ -49,23 +49,41 @@ module tp_bus
     output logic [3:0]        reg_addr,
     output logic              reg_we,
     output logic [31:0]       reg_wdata,
-    input  wire  logic [31:0] reg_rdata
+    input  wire  logic [31:0] reg_rdata,
+    // peripheral slave
+    output logic              p_req,
+    output logic [3:0]        p_addr,
+    output logic              p_we,
+    output logic [31:0]       p_wdata,
+    input  wire  logic [31:0] p_rdata,
+    // boot ROM: instruction fetch only, answers in the same clock
+    output logic [5:0]        rom_addr,
+    input  wire  logic [31:0] rom_data
 );
 
     logic [3:0] d_dev, i_dev;
     assign d_dev = dmem_addr[31:28];
     assign i_dev = imem_addr[31:28];
 
-    logic d_is_sync, d_is_ext, i_is_ext;
-    assign d_is_sync = (d_dev == tp_pkg::DEV_SYNC);
+    logic d_is_sync, d_is_periph, d_is_ext, i_is_ext, i_is_rom;
+    assign d_is_sync   = (d_dev == tp_pkg::DEV_SYNC);
+    assign d_is_periph = (d_dev == tp_pkg::DEV_PERIPH);
     assign d_is_ext  = (d_dev == tp_pkg::DEV_FLASH) || (d_dev == tp_pkg::DEV_PSRAM);
     assign i_is_ext  = (i_dev == tp_pkg::DEV_FLASH) || (i_dev == tp_pkg::DEV_PSRAM);
+    assign i_is_rom  = (i_dev == tp_pkg::DEV_ROM);
+    assign rom_addr  = imem_addr[7:2];
 
     // ---- sync unit path: single cycle ----
     assign reg_req   = dmem_req && d_is_sync;
     assign reg_addr  = dmem_addr[5:2];
     assign reg_we    = dmem_we;
     assign reg_wdata = dmem_wdata;
+
+    // ---- peripheral path: single cycle ----
+    assign p_req   = dmem_req && d_is_periph;
+    assign p_addr  = dmem_addr[5:2];
+    assign p_we    = dmem_we;
+    assign p_wdata = dmem_wdata;
 
     // ---- QSPI ownership ----
     logic busy, owner;                 // owner: 0 = fetch, 1 = data
@@ -102,12 +120,13 @@ module tp_bus
     assign q_dev   = use_data ? (d_dev == tp_pkg::DEV_PSRAM) : (i_dev == tp_pkg::DEV_PSRAM);
 
     // ---- responses ----
-    assign imem_rvalid = q_rvalid && !owner;
-    assign imem_rdata  = q_rdata;
+    assign imem_rvalid = (imem_req && i_is_rom) || (q_rvalid && !owner);
+    assign imem_rdata  = i_is_rom ? rom_data : q_rdata;
 
-    assign dmem_rvalid = (dmem_req && d_is_sync) ||     // sync: same cycle
+    assign dmem_rvalid = (dmem_req && (d_is_sync || d_is_periph)) ||  // same cycle
                          (q_rvalid && owner);
-    assign dmem_rdata  = d_is_sync ? reg_rdata : q_rdata;
+    assign dmem_rdata  = d_is_sync   ? reg_rdata :
+                         d_is_periph ? p_rdata   : q_rdata;
 
     // Only addr[31:28] (device) and addr[23:0] (offset) are decoded; the
     // gap in the middle is unmapped address space by design.

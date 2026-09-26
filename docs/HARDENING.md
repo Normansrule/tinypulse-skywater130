@@ -28,15 +28,17 @@ you continue.
 ## Step 0 — versions, because this is where the time goes
 
 ```bash
-yosys -V          # need >= 0.44
+yosys -V          # any version works
 verilator --version
 iverilog -V | head -1
 ```
 
-Ubuntu and Debian ship an old Yosys. Yosys 0.33, which is what Debian
-packaged for a long time, **cannot parse this design**: it does not support
-file-scope `import`, so it dies on the first module. If `yosys -V` reports
-anything below 0.44:
+Any Yosys will do. The RTL deliberately avoids both typedef'd enums on
+ports and file-scope `import`, referring to package symbols as
+`tp_pkg::NAME` instead, which every Yosys back to 0.33 parses. That was
+not free — it means writing the prefix everywhere — but it removes a
+whole class of "works on my machine" failure. If you want a newer Yosys
+anyway:
 
 ```bash
 pip install --break-system-packages yowasp-yosys

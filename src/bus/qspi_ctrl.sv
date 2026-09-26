@@ -20,6 +20,38 @@
 // re-issued an address, and a taken branch is what costs you the preamble
 // back. That is the whole reason tp_bpred earns its flip-flops.
 //
+// Wake-up. Both memory chips on the QSPI Pmod power up in plain single-bit
+// SPI mode, and neither understands the four-bit transactions below until
+// told to. So after every reset, before accepting any request, the
+// controller runs a fixed six-step sequence (see WAKE below):
+//   flash  all four lines high for 8 clocks   leave continuous read, if in it
+//   flash  0xEB, one bit per clock             Fast Read Quad I/O, then
+//          addr 0 + mode 0xA0, 4 dummy, 1 byte  -> continuous read from now on
+//   RAMs   0xF5, four bits per clock           leave QPI, if a previous run left it
+//   RAMs   0x35, one bit per clock             enter QPI
+// Two steps are, strictly, redundant in every reachable state: any mode
+// byte other than 10xx_xxxx ends continuous read (so the all-ones reset
+// could be zeros), and 0x35 sent to a RAM already in QPI decodes as the
+// undefined command 0xCC and is ignored (so 0xF5 could be skipped). Mutation
+// testing confirms both are equivalent. They stay because the datasheets
+// prescribe them, and without them correctness would rest on those
+// coincidences rather than on the documented protocol.
+//
+// Every step is safe whatever state the chip was in, so it works after a
+// power cycle and after a plain reset alike. The RAM steps select both RAMs
+// at once (`waking` tells tp_soc to); they are write-only commands, so the
+// two chips never drive the bus against each other. The APS6404L needs
+// 150 us after power-up before its first command; the demo board holds
+// reset far longer than that.
+//
+// Contract with the requester: addr, we, wdata, be and dev stay constant
+// from the clock req is raised until the clock after rvalid. The nibble core
+// guarantees it (it sits in FETCH or MEM, holding pc or mar, for the whole
+// transaction) and so does tp_bus, which keeps the owning master's signals
+// on the mux while busy. Relying on it means the controller keeps no copy of
+// the address or the command word: 56 flip-flops and about 1,200 um^2 that
+// the 32-bit core, whose fetch address could move mid-transaction, needed.
+//
 // Byte order: the flash streams ascending addresses and RV32 is little
 // endian, so the first byte on the wire is the least significant byte of the
 // word. Within a byte the high nibble goes first.
@@ -66,25 +98,30 @@ module qspi_ctrl #(
     output logic              cs_ram_n,
     output logic [3:0]        sd_out,
     output logic [3:0]        sd_oe,
+    output logic              waking,     // wake-up sequence running
     input  wire  logic [3:0]  sd_in
 );
 
-    localparam logic [2:0] Q_IDLE   = 3'd0;
-    localparam logic [2:0] Q_PREFIX = 3'd1;
-    localparam logic [2:0] Q_DUMMY  = 3'd2;
-    localparam logic [2:0] Q_DATA   = 3'd3;
-    localparam logic [2:0] Q_END    = 3'd4;
-    localparam logic [2:0] Q_DESEL  = 3'd5;
+    localparam logic [3:0] Q_IDLE   = 4'd0;
+    localparam logic [3:0] Q_PREFIX = 4'd1;
+    localparam logic [3:0] Q_DUMMY  = 4'd2;
+    localparam logic [3:0] Q_DATA   = 4'd3;
+    localparam logic [3:0] Q_END    = 4'd4;
+    localparam logic [3:0] Q_DESEL  = 4'd5;
+    localparam logic [3:0] Q_WLOAD  = 4'd6;   // wake-up: set up the next step
+    localparam logic [3:0] Q_WSHIFT = 4'd7;   //          clock it out
+    localparam logic [3:0] Q_WGAP   = 4'd8;   //          chip select high between steps
 
-    logic [2:0]  state;
+    logic [3:0]  state;
+    logic [2:0]  wstep;              // wake-up step, 0..5
+    logic        w_spi;              // this step is one bit per clock on IO0
+    logic [3:0]  w_oe;
     logic        phase;              // 0 = sck low, 1 = sck high
     logic [31:0] tx;                 // prefix / write-data shift register
     logic [31:0] rx;
     logic [3:0]  nib_cnt;            // nibbles remaining in the current phase
     logic [3:0]  dummy_cnt;
     logic        cur_dev, cur_we;
-    logic [23:0] cur_addr;           // latched: the bus may move on mid-burst
-    logic [31:0] prefix_q;           // latched prefix, sent after deselect
     logic [2:0]  desel_cnt;
     logic [23:0] next_seq_addr;      // address the stream is positioned at
     logic        stream_open;        // flash chip select is low and streaming
@@ -127,12 +164,35 @@ module qspi_ctrl #(
     assign prefix_word = dev ? {(we ? RAM_WRITE : RAM_READ), eff_addr}
                              : {eff_addr, FLASH_MODE};
 
+    // The wake-up sequence, one row per step:
+    //   which chip, one-bit or four-bit, clocks, data (MSB first), drive mask,
+    //   and whether chip select stays low into the next step
+    logic        w_flash, w_spi_d, w_keep;
+    logic [3:0]  w_clocks, w_oe_d;
+    logic [31:0] w_data;
+    always_comb begin
+        unique case (wstep)
+            3'd0: {w_flash, w_spi_d, w_clocks, w_data, w_oe_d, w_keep} = {1'b1, 1'b0, 4'd8, 32'hFFFF_FFFF, 4'b1111, 1'b0};
+            3'd1: {w_flash, w_spi_d, w_clocks, w_data, w_oe_d, w_keep} = {1'b1, 1'b1, 4'd8, 32'hEB00_0000, 4'b1101, 1'b1};
+            3'd2: {w_flash, w_spi_d, w_clocks, w_data, w_oe_d, w_keep} = {1'b1, 1'b0, 4'd8, {24'd0, FLASH_MODE}, 4'b1111, 1'b1};
+            3'd3: {w_flash, w_spi_d, w_clocks, w_data, w_oe_d, w_keep} = {1'b1, 1'b0, 4'd6, 32'd0, 4'b0000, 1'b0};
+            3'd4: {w_flash, w_spi_d, w_clocks, w_data, w_oe_d, w_keep} = {1'b0, 1'b0, 4'd2, 32'hF500_0000, 4'b1111, 1'b0};
+            default: {w_flash, w_spi_d, w_clocks, w_data, w_oe_d, w_keep} = {1'b0, 1'b1, 4'd8, 32'h3500_0000, 4'b1101, 1'b0};
+        endcase
+    end
+    // In single-bit steps IO2/IO3 are held high (they are /WP and /HOLD on a
+    // flash whose quad mode is off) and IO1 is left to the chip.
+    assign waking = (state == Q_WLOAD) || (state == Q_WSHIFT) || (state == Q_WGAP);
+
     logic can_stream;
     assign can_stream = stream_open && !dev && !we && (addr == next_seq_addr);
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            state         <= Q_IDLE;
+            state         <= Q_WLOAD;
+            wstep         <= 3'd0;
+            w_spi         <= 1'b0;
+            w_oe          <= 4'b0000;
             phase         <= 1'b0;
             tx            <= 32'd0;
             rx            <= 32'd0;
@@ -142,7 +202,6 @@ module qspi_ctrl #(
             cur_we        <= 1'b0;
             next_seq_addr <= 24'hFFFFFF;
             stream_open   <= 1'b0;
-            prefix_q      <= 32'd0;
             desel_cnt     <= 3'd0;
             rvalid        <= 1'b0;
             cs_flash_n    <= 1'b1;
@@ -159,7 +218,6 @@ module qspi_ctrl #(
                     if (req) begin
                         cur_dev  <= dev;
                         cur_we   <= we;
-                        cur_addr <= eff_addr;
                         if (can_stream) begin
                             // chip select already low, the stream continues.
                             // No preamble and no latency: the flash has been
@@ -174,7 +232,6 @@ module qspi_ctrl #(
                             cs_flash_n  <= 1'b1;
                             cs_ram_n    <= 1'b1;
                             stream_open <= 1'b0;
-                            prefix_q    <= prefix_word;
                             dummy_cnt   <= we ? 4'd0
                                         : (dev ? (DUMMY_RAM[3:0]   + {1'b0, rd_latency})
                                                : (DUMMY_FLASH[3:0] + {1'b0, rd_latency}));
@@ -192,7 +249,7 @@ module qspi_ctrl #(
                     end else begin
                         cs_flash_n <= cur_dev;      // low only for flash
                         cs_ram_n   <= ~cur_dev;
-                        tx         <= prefix_q;
+                        tx         <= prefix_word;   // inputs are still held
                         nib_cnt    <= 4'd8;
                         state      <= Q_PREFIX;
                     end
@@ -250,11 +307,56 @@ module qspi_ctrl #(
                     if (!cur_dev && !cur_we) begin
                         // leave the flash stream open and remember where it is
                         stream_open   <= 1'b1;
-                        next_seq_addr <= {cur_addr[23:2], 2'b00} + 24'd4;
+                        next_seq_addr <= {addr[23:2], 2'b00} + 24'd4;
                     end else begin
                         cs_flash_n  <= 1'b1;
                         cs_ram_n    <= 1'b1;
                         stream_open <= 1'b0;
+                    end
+                end
+
+                Q_WLOAD: begin
+                    sck        <= 1'b0;
+                    phase      <= 1'b0;
+                    cs_flash_n <= !w_flash;
+                    cs_ram_n   <=  w_flash;
+                    tx         <= w_data;
+                    nib_cnt    <= w_clocks;
+                    w_spi      <= w_spi_d;
+                    w_oe       <= w_oe_d;
+                    state      <= Q_WSHIFT;
+                end
+
+                Q_WSHIFT: begin
+                    sck <= ~phase;
+                    if (phase) begin
+                        tx      <= w_spi ? {tx[30:0], 1'b0} : {tx[27:0], 4'd0};
+                        nib_cnt <= nib_cnt - 4'd1;
+                        if (nib_cnt == 4'd1) begin
+                            if (w_keep) begin
+                                wstep <= wstep + 3'd1;      // same chip, carry on
+                                state <= Q_WLOAD;
+                            end else begin
+                                cs_flash_n <= 1'b1;
+                                cs_ram_n   <= 1'b1;
+                                desel_cnt  <= CS_HIGH[2:0];
+                                state      <= Q_WGAP;
+                            end
+                        end
+                    end
+                    phase <= ~phase;
+                end
+
+                Q_WGAP: begin
+                    sck   <= 1'b0;
+                    phase <= 1'b0;
+                    if (desel_cnt != 3'd0) begin
+                        desel_cnt <= desel_cnt - 3'd1;
+                    end else if (wstep == 3'd5) begin
+                        state <= Q_IDLE;                  // memories awake
+                    end else begin
+                        wstep <= wstep + 3'd1;
+                        state <= Q_WLOAD;
                     end
                 end
 
@@ -266,13 +368,13 @@ module qspi_ctrl #(
     // byte swap: rx[31:24] is the lowest addressed byte
     assign rdata  = {rx[7:0], rx[15:8], rx[23:16], rx[31:24]};
 
-    assign sd_out = tx[31:28];
+    assign sd_out = (state == Q_WSHIFT && w_spi) ? {2'b11, 1'b0, tx[31]} : tx[31:28];
     // drive the bus during the prefix always, and during data only on writes
-    assign sd_oe  = ((state == Q_PREFIX) ||
+    assign sd_oe  = (state == Q_WSHIFT) ? w_oe :
+                    ((state == Q_PREFIX) ||
                      ((state == Q_DATA) && cur_we)) ? 4'b1111 : 4'b0000;
 
-    // cur_addr[1:0] is a byte offset inside a word; the streaming check only
-    // cares about word addresses.
-    wire _unused = &{1'b0, cur_addr[1:0], 1'b0};
+    // addr[1:0] is a byte offset inside a word; the stream position only
+    // tracks word addresses.
 
 endmodule : qspi_ctrl

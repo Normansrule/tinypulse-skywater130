@@ -1,46 +1,38 @@
 # info.yaml — Tiny Tapeout project metadata for TinyPulse-Skywater130.
 # See https://tinytapeout.com for the current schema.
 #
-# `tiles: "4x2"` is MEASURED: 69,866 um^2 of sky130 standard cells.
-#     2x2  154% at 60%   does not fit
-#     3x2  101% at 60%, 87% at 70%   tight
-#     4x2   76% at 60%   fits
-# Reproduce: cd test && make area
+# `tiles: "2x2"` is MEASURED: 49,186 um^2 of sky130_fd_sc_hd cells (flattened
+# netlist), about 68% of the tile's placeable area; src/config.json raises the
+# placement target density to 72 to match. Reproduce: cd test && make area.
+# (The earlier 32-bit core measured 69,866 um^2 and needed 4x2.)
 
 project:
-  title:        "TinyPulse-Skywater130 time-deterministic RISC-V"
+  title:        "TinyPulse: RISC-V microcontroller with hardware timestamping"
   author:       "Aleksander Norman"
   discord:      ""
-  description:  "RV32I core whose instruction set treats time as an operand: hardware event timestamping, deadline triggers with zero jitter, and a disciplinable timebase"
+  description:  "Nibble-serial RV32E microcontroller: QSPI flash + RAM, UART, 8 GPIO in/out, and Xpulse instructions for 20 ns event timestamps and zero-jitter deadline triggers"
   language:     "SystemVerilog"
   clock_hz:     50000000            # 50 MHz signoff target; sweep in synthesis.
                                     # At 50 MHz: 21 clocks per sequential
                                     # instruction, 20 ns timestamp resolution.
 
-  tiles:        "4x2"
+  tiles:        "2x2"
 
   top_module:   "tt_um_normansrule_tinypulse"
 
   # Package first, then leaves, then the modules that instantiate them.
   source_files:
     - "tp_pkg.sv"
-    - "core/tp_alu.sv"
-    - "core/tp_shifter.sv"
-    - "core/tp_branch_comp.sv"
-    - "core/tp_branch_unit.sv"
-    - "core/tp_regfile.sv"
-    - "core/tp_imm_gen.sv"
-    - "core/tp_decode.sv"
-    - "core/tp_bpred.sv"
-    - "core/tp_hazard.sv"
-    - "core/tp_lsu.sv"
-    - "core/tp_fetch.sv"
-    - "core/tp_core.sv"
+    - "core/tp_nregfile.sv"
+    - "core/tp_ncore.sv"
     - "sync/sync_timebase.sv"
     - "sync/sync_capture.sv"
     - "sync/sync_event_fifo.sv"
     - "sync/sync_compare.sv"
     - "sync/sync_unit.sv"
+    - "periph/tp_uart.sv"
+    - "periph/tp_periph.sv"
+    - "boot/tp_bootrom.sv"
     - "bus/tp_bus.sv"
     - "bus/qspi_ctrl.sv"
     - "tp_soc.sv"
@@ -48,32 +40,32 @@ project:
 
 # Pin assignments. This text appears on the datasheet page.
 pinout:
-  ui[0]:  "CAP0 capture input (also QSPI read latency bit 0 at reset)"
-  ui[1]:  "CAP1 capture input (also QSPI read latency bit 1 at reset)"
-  ui[2]:  "CAP2 capture input (also QSPI read latency bit 2 at reset)"
-  ui[3]:  "CAP3 capture input"
-  ui[4]:  "CAP4 capture input"
-  ui[5]:  "CAP5 capture input"
-  ui[6]:  "CAP6 capture input"
-  ui[7]:  "CAP7 capture input"
+  ui[0]:  "IN0 / capture 0 / QSPI latency bit 0 during reset"
+  ui[1]:  "IN1 / capture 1 / QSPI latency bit 1 during reset"
+  ui[2]:  "IN2 / capture 2 / QSPI latency bit 2 during reset"
+  ui[3]:  "UART RX / capture 3"
+  ui[4]:  "IN4 / capture 4"
+  ui[5]:  "IN5 / capture 5"
+  ui[6]:  "IN6 / capture 6"
+  ui[7]:  "IN7 / capture 7 / BOOT: high during reset runs the UART bootloader"
 
-  uo[0]:  "TRIG0 deadline trigger output"
-  uo[1]:  "TRIG1 deadline trigger output"
-  uo[2]:  "EVT event queue not empty"
-  uo[3]:  "OVF event queue overflowed (sticky)"
-  uo[4]:  "HALT core retired ECALL/EBREAK"
-  uo[5]:  "ILL illegal instruction decoded (sticky)"
-  uo[6]:  "HB heartbeat, timebase bit 23"
-  uo[7]:  "SCK QSPI clock"
+  uo[0]:  "TRIG0 deadline trigger / GPIO OUT0"
+  uo[1]:  "TRIG1 deadline trigger / GPIO OUT1"
+  uo[2]:  "EVT event waiting / GPIO OUT2"
+  uo[3]:  "OVF event queue overflow / GPIO OUT3"
+  uo[4]:  "UART TX / GPIO OUT4"
+  uo[5]:  "HALT / GPIO OUT5"
+  uo[6]:  "ILLEGAL instruction / GPIO OUT6"
+  uo[7]:  "HEARTBEAT / GPIO OUT7"
 
-  uio[0]: "SD0 QSPI data 0 (bidirectional)"
-  uio[1]: "SD1 QSPI data 1 (bidirectional)"
-  uio[2]: "SD2 QSPI data 2 (bidirectional)"
-  uio[3]: "SD3 QSPI data 3 (bidirectional)"
-  uio[4]: "CSF flash chip select, active low"
-  uio[5]: "CSR PSRAM chip select, active low"
-  uio[6]: "TRIG2 deadline trigger output"
-  uio[7]: "EVTP one-clock pulse on event capture"
+  uio[0]: "QSPI CS0 flash"
+  uio[1]: "QSPI SD0 / MOSI"
+  uio[2]: "QSPI SD1 / MISO"
+  uio[3]: "QSPI SCK"
+  uio[4]: "QSPI SD2"
+  uio[5]: "QSPI SD3"
+  uio[6]: "QSPI CS1 RAM A"
+  uio[7]: "QSPI CS2 RAM B"
 
 # Do not change unless you know what you are doing.
 yaml_version: 6

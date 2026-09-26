@@ -1,4 +1,6 @@
 # synth_check.ys — a fast sanity synthesis, independent of the PDK.
+# Works with any Yosys version: the RTL uses tp_pkg::NAME rather than
+# file-scope `import`, which older builds reject.
 #
 # This is NOT the hardening run: it uses Yosys's generic cell library, so
 # the numbers are technology-independent. What it tells you is the thing
@@ -14,28 +16,20 @@
 # Run from the repository root:
 #     yosys -s syn/synth_check.ys
 #
-# Requires Yosys 0.44 or newer for file-scope `import`. Check with
-# `yosys -V`; Debian and Ubuntu often ship something much older, in which
-# case `pip install yowasp-yosys` gets you a current build.
+# Works with any Yosys version. For real sky130 cell area use
+# syn/area_sky130.sh instead.
 
 read_verilog -sv src/tp_pkg.sv
-read_verilog -sv src/core/tp_alu.sv
-read_verilog -sv src/core/tp_shifter.sv
-read_verilog -sv src/core/tp_branch_comp.sv
-read_verilog -sv src/core/tp_branch_unit.sv
-read_verilog -sv src/core/tp_regfile.sv
-read_verilog -sv src/core/tp_imm_gen.sv
-read_verilog -sv src/core/tp_decode.sv
-read_verilog -sv src/core/tp_bpred.sv
-read_verilog -sv src/core/tp_hazard.sv
-read_verilog -sv src/core/tp_lsu.sv
-read_verilog -sv src/core/tp_fetch.sv
-read_verilog -sv src/core/tp_core.sv
+read_verilog -sv src/core/tp_nregfile.sv
+read_verilog -sv src/core/tp_ncore.sv
 read_verilog -sv src/sync/sync_timebase.sv
 read_verilog -sv src/sync/sync_capture.sv
 read_verilog -sv src/sync/sync_event_fifo.sv
 read_verilog -sv src/sync/sync_compare.sv
 read_verilog -sv src/sync/sync_unit.sv
+read_verilog -sv src/periph/tp_uart.sv
+read_verilog -sv src/periph/tp_periph.sv
+read_verilog -sv src/boot/tp_bootrom.sv
 read_verilog -sv src/bus/tp_bus.sv
 read_verilog -sv src/bus/qspi_ctrl.sv
 read_verilog -sv src/tp_soc.sv

@@ -6,13 +6,15 @@
 #   make lint       Verilator -Wall, must be clean
 #   make synth      Yosys elaboration + real flip-flop count
 #   make area LIB=<sky130 .lib>   REAL sky130 cell area vs every tile size
-#   make unit       block-level checks
+#   make unit       block-level checks: timing unit, register file, UART, GPIO
 #   make soc        system test: boots a program, checks trigger timing
-#   make isa        all 40 RV32I instructions against expected results
+#   make isa        every RV32I instruction against Python-computed results
 #   make stress     simultaneous capture, queue overflow, 2^32 rollover
 #   make wrap       system-level rollover: TWAIT across the wrap
 #   make xpulse     all eleven Xpulse instructions executed
-#   make profile    the same ISA test against the 2x2 build profile
+#   make boot       UART bootloader: load a program over serial into RAM, run it
+#   make wake       QSPI wake-up from cold, warm and pre-set memory states
+#   make GATES=yes  the cocotb tests on the post-hardening netlist
 #   make prog       regenerate the .hex programs
 
 SIM ?= icarus
@@ -20,47 +22,45 @@ TOPLEVEL_LANG ?= verilog
 SRC = ../src
 
 RTL  = $(SRC)/tp_pkg.sv
-RTL += $(SRC)/core/tp_alu.sv
-RTL += $(SRC)/core/tp_shifter.sv
-RTL += $(SRC)/core/tp_branch_comp.sv
-RTL += $(SRC)/core/tp_branch_unit.sv
-RTL += $(SRC)/core/tp_regfile.sv
-RTL += $(SRC)/core/tp_imm_gen.sv
-RTL += $(SRC)/core/tp_decode.sv
-RTL += $(SRC)/core/tp_bpred.sv
-RTL += $(SRC)/core/tp_hazard.sv
-RTL += $(SRC)/core/tp_lsu.sv
-RTL += $(SRC)/core/tp_fetch.sv
-RTL += $(SRC)/core/tp_core.sv
+RTL += $(SRC)/core/tp_nregfile.sv
+RTL += $(SRC)/core/tp_ncore.sv
 RTL += $(SRC)/sync/sync_timebase.sv
 RTL += $(SRC)/sync/sync_capture.sv
 RTL += $(SRC)/sync/sync_event_fifo.sv
 RTL += $(SRC)/sync/sync_compare.sv
 RTL += $(SRC)/sync/sync_unit.sv
+RTL += $(SRC)/periph/tp_uart.sv
+RTL += $(SRC)/periph/tp_periph.sv
+RTL += $(SRC)/boot/tp_bootrom.sv
 RTL += $(SRC)/bus/tp_bus.sv
 RTL += $(SRC)/bus/qspi_ctrl.sv
 RTL += $(SRC)/tp_soc.sv
 RTL += $(SRC)/tt_um_normansrule_tinypulse.sv
 
-VERILOG_SOURCES = $(RTL) qspi_model.sv tb.v
+# cocotb: RTL by default; `make GATES=yes` runs the same tests on the
+# gate-level netlist that Tiny Tapeout's CI copies in after hardening.
+ifneq ($(GATES),yes)
+SIM_BUILD        = sim_build/rtl
+VERILOG_SOURCES  = $(RTL) qspi_model.sv tb.v
+else
+SIM_BUILD        = sim_build/gl
+COMPILE_ARGS    += -DGL_TEST -DFUNCTIONAL -DUSE_POWER_PINS -DSIM -DUNIT_DELAY=\#1
+VERILOG_SOURCES  = $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/primitives.v
+VERILOG_SOURCES += $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/sky130_fd_sc_hd.v
+VERILOG_SOURCES += $(PWD)/gate_level_netlist.v qspi_model.sv tb.v
+endif
 
 COMPILE_ARGS += -g2012
 TOPLEVEL = tb
-MODULE   = test
+COCOTB_TEST_MODULES = test
 
 # --- pure Verilog, no cocotb ------------------------------------------
-.PHONY: sim lint synth area unit soc isa stress wrap xpulse profile prog clean-sim
+.PHONY: sim lint synth area unit soc isa stress wrap xpulse boot wake prog clean-sim
 
-sim: unit soc isa stress wrap xpulse profile
+sim: unit soc isa stress wrap xpulse boot wake
 	@echo ""
 	@echo "all testbenches finished — check for FAILED above"
 
-# IMPORTSTAR is waived deliberately and it is the only waiver in this
-# project. Verilator is right that `import tp_pkg::*;` at compilation
-# unit scope pollutes the global namespace. The alternative, putting the
-# import in the module header, is not parseable by Yosys's native
-# frontend -- and that frontend is what hardens the chip. Namespace
-# tidiness loses to being able to synthesize.
 lint:
 	verilator --lint-only -Wall --timing $(RTL) --top-module tt_um_normansrule_tinypulse
 
@@ -69,6 +69,7 @@ area:
 
 prog:
 	python3 ../sw/mkprog.py prog.hex
+	python3 ../sw/mkhello.py hello.hex >/dev/null
 	python3 ../sw/mkisa.py  isa.hex
 	python3 ../sw/mkwrap.py wrap.hex
 	python3 ../sw/mkxpulse.py xpulse.hex
@@ -97,10 +98,6 @@ xpulse: prog
 	iverilog -g2012 -o tb_xpulse.vvp -s tb_xpulse $(RTL) qspi_model.sv tb_xpulse.sv
 	vvp tb_xpulse.vvp
 
-profile: prog
-	iverilog -g2012 -o tb_profile.vvp -s tb_profile $(RTL) qspi_model.sv tb_profile.sv
-	vvp tb_profile.vvp
-
 clean-sim:
 	rm -f *.vvp *.vcd
 
@@ -110,3 +107,11 @@ COCOTB_MAKEFILES := $(shell cocotb-config --makefiles 2>/dev/null)
 ifneq ($(COCOTB_MAKEFILES),)
 include $(COCOTB_MAKEFILES)/Makefile.sim
 endif
+
+boot: prog
+	iverilog -g2012 -o tb_boot.vvp -s tb_boot $(RTL) qspi_model.sv tb_boot.sv
+	vvp tb_boot.vvp
+
+wake: prog
+	iverilog -g2012 -o tb_wake.vvp -s tb_wake $(RTL) qspi_model.sv tb_wake.sv
+	vvp tb_wake.vvp

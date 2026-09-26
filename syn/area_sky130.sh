@@ -41,23 +41,16 @@ if [ -z "$LIB" ] || [ ! -f "$LIB" ]; then
     exit 1
 fi
 
-# Needs Yosys 0.44+ for file-scope `import`. Ubuntu and Debian often ship
-# something older that dies on the first module, so check rather than hope.
-pick_yosys() {
-    for y in "${YOSYS:-}" yosys "$HOME/oss-cad-suite/bin/yosys" yowasp-yosys; do
-        [ -n "$y" ] && command -v "$y" >/dev/null 2>&1 || continue
-        v=$("$y" -V 2>/dev/null | grep -oP 'Yosys \K[0-9]+\.[0-9]+' || true)
-        [ -z "$v" ] && continue
-        maj=${v%%.*}; min=${v#*.}
-        if [ "$maj" -gt 0 ] || [ "$min" -ge 44 ]; then echo "$y"; return 0; fi
-        echo "note: skipping $y (Yosys $v is older than 0.44)" >&2
-    done
-    return 1
-}
-if ! YOSYS=$(pick_yosys); then
-    echo "error: need Yosys 0.44 or newer." >&2
-    echo "  pip install --break-system-packages yowasp-yosys" >&2
-    echo "  or use the one in oss-cad-suite: source ~/oss-cad-suite/environment" >&2
+# Any Yosys will do: the RTL refers to package symbols as tp_pkg::NAME
+# rather than using file-scope `import`, which older builds reject. Prefer
+# a locally installed oss-cad-suite build if there is one, since it tends
+# to be newer than the distribution package.
+YOSYS=""
+for y in "${YOSYS_BIN:-}" "$HOME/oss-cad-suite/bin/yosys" yosys yowasp-yosys; do
+    if [ -n "$y" ] && command -v "$y" >/dev/null 2>&1; then YOSYS="$y"; break; fi
+done
+if [ -z "$YOSYS" ]; then
+    echo "error: no yosys found. Install it, or source ~/oss-cad-suite/environment" >&2
     exit 1
 fi
 
