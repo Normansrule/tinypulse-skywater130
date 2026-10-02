@@ -110,27 +110,5 @@ b.append(f"<text x='{rx}' y='{base+22}' fill='{FG}' font-size='14' text-anchor='
 b.append(f"<line x1='{x0}' y1='{base+60}' x2='{x0+110}' y2='{base+60}' stroke='{FG}' stroke-width='3'/><text x='{x0+120}' y='{base+65}' fill='{DIM}' font-size='13'>100 µm</text>")
 open("docs/images/scale.svg","w").write(svg(W,H,"".join(b),"TinyPulse size comparison"))
 
-# ------------------------------------------------------------------ nibble add
-W, H = 1200, 400
-a, bb = 0x1234_ABCD, 0x0FED_5432
-b = [f"<text x='600' y='42' fill='{FG}' font-size='24' font-weight='700' text-anchor='middle'>How the core adds: 4 bits per clock, 8 clocks per instruction</text>",
-     f"<text x='600' y='68' fill='{DIM}' font-size='14' text-anchor='middle'>0x1234ABCD + 0x0FED5432 — one 4-bit adder, the carry held in a flip-flop between clocks</text>"]
-carry = 0
-for k in range(8):
-    x = 70 + k*135
-    na, nb = (a >> 4*k) & 15, (bb >> 4*k) & 15
-    ssum = na + nb + carry; out, cout = ssum & 15, ssum >> 4
-    b.append(f"<rect x='{x}' y='100' width='120' height='230' rx='12' fill='{CARD}' stroke='{C['core'] if k==0 else '#30363d'}' stroke-width='2'/>")
-    b.append(f"<text x='{x+60}' y='126' fill='{DIM}' font-size='13' text-anchor='middle'>clock {k}</text>")
-    b.append(f"<text x='{x+60}' y='166' fill='{C['reg']}' font-size='24' font-family='monospace' text-anchor='middle'>{na:X}</text>")
-    b.append(f"<text x='{x+60}' y='198' fill='{C['per']}' font-size='24' font-family='monospace' text-anchor='middle'>+{nb:X}</text>")
-    b.append(f"<text x='{x+60}' y='222' fill='{DIM}' font-size='12' text-anchor='middle'>carry in {carry}</text>")
-    b.append(f"<line x1='{x+20}' y1='236' x2='{x+100}' y2='236' stroke='#30363d'/>")
-    b.append(f"<text x='{x+60}' y='270' fill='{FG}' font-size='28' font-weight='700' font-family='monospace' text-anchor='middle'>{out:X}</text>")
-    b.append(f"<text x='{x+60}' y='300' fill='{C['time'] if cout else DIM}' font-size='12' text-anchor='middle'>carry out {cout}</text>")
-    if k < 7: b.append(f"<text x='{x+128}' y='220' fill='{C['time'] if cout else '#30363d'}' font-size='18'>›</text>")
-    carry = cout
-res = (a + bb) & 0xFFFFFFFF
-b.append(f"<text x='600' y='368' fill='{FG}' font-size='18' text-anchor='middle'>result written back nibble by nibble, least significant first: <tspan font-family='monospace' font-weight='700'>0x{res:08X}</tspan></text>")
-open("docs/images/nibble_add.svg","w").write(svg(W,H,"".join(b),"Nibble-serial addition"))
-print("wrote pinout.svg, block_diagram.svg, scale.svg, nibble_add.svg")
+# (the nibble adder is animated now: see animations.py)
+print("wrote pinout.svg, block_diagram.svg, scale.svg")

@@ -134,6 +134,7 @@ module tb_boot;
         chk(dut.u_soc.g_cpu.u_core.halted === 1'b1, "the loaded program ran to its ECALL");
         chk(dut.u_soc.g_cpu.u_core.pc[31:28] == 4'h1, "and it halted at an address in RAM (0x1xxx_xxxx)");
         chk(dut.u_soc.g_cpu.u_core.illegal_q === 1'b0, "no illegal instructions anywhere along the way");
+        chk(u_psram.violations == 0, "RAM timing: selected under 8 us, deselected at least 18 ns, always");
 
         $display("\n%0d checks, %0d failures", checks, errors);
         if (errors == 0) $display("BOOTLOADER TEST PASSED\n");

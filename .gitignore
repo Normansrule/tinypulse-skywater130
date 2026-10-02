@@ -7,3 +7,12 @@ sim_build/
 __pycache__/
 results.xml
 runs/
+# downloaded by test/act/fetch.sh
+test/act/riscv-arch-test/
+test/.zig-cache-test/
+test/.zig-cache-act/
+test/*_out.txt
+test/printf_cases.c
+test/printf_expect.txt
+tt/
+src/user_config.json

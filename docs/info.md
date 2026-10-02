@@ -1,18 +1,22 @@
 # TinyPulse — a RISC-V microcontroller the size of a grain of salt
 
+![RISC-V RV32E](https://img.shields.io/badge/RISC--V-RV32E-8a5cff)
+![Tiny Tapeout 2x2](https://img.shields.io/badge/Tiny_Tapeout-2%C3%972_tiles-3ddc97)
+![official RISC-V tests 37/37](https://img.shields.io/badge/official_RISC--V_tests-37%2F37-4f8cff)
+![checks 226](https://img.shields.io/badge/self--checks-226_passing-4f8cff)
+![sky130](https://img.shields.io/badge/SkyWater-130_nm-ff9f1c)
+
+![Zooming from the whole TinyPulse chip down to single transistors](images/zoom.webp)
+
+<sub>From the whole chip to single transistors: the design's ~5,500 real sky130 logic cells,
+drawn from SkyWater's own cell geometry with KLayout (`docs/tools/zoom_animation.py`).</sub>
+
 **A complete 32-bit microcontroller in 0.075 mm² of silicon — two Tiny Tapeout tiles, 280 €.**
 It runs RISC-V code from a 16 MB flash chip — or straight from a USB serial link, no
 programmer needed — has 16 MB of RAM, 8 inputs, 8 outputs, a
 UART for `printf`, and something no ordinary microcontroller has: **instructions that treat
 time as an operand.** It timestamps pin edges in hardware, fires output pulses on an exact
 clock tick with zero jitter, and can be disciplined to an external reference.
-
-![Every real sky130 standard cell in TinyPulse, placed block by block inside the 2x2 tile](images/layout_blocks.png)
-
-<sub>Every one of the design's ~5,400 real sky130 standard cells, drawn from the foundry's own
-cell geometry and placed by block inside the 334.9 × 225.8 µm tile. This is a placement
-preview (no signal routing) made by <code>docs/tools/layout_preview.py</code>; the fabricated
-layout comes from the <code>gds</code> GitHub Actions job, which also publishes a 3D viewer.</sub>
 
 | | |
 |---|---|
@@ -22,10 +26,35 @@ layout comes from the <code>gds</code> GitHub Actions job, which also publishes 
 | **Memory** | 16 MB QSPI flash (code) + 2 × 8 MB QSPI RAM (data), via the Tiny Tapeout QSPI Pmod |
 | **I/O** | 8 inputs · 8 outputs · UART on the demo board's USB bridge |
 | **Timing** | 32-bit timebase with rate trim · 2 deadline triggers · 8 capture channels · event queue |
-| **Programming** | Tiny Tapeout flasher, or over the UART with the built-in bootloader |
+| **Programming** | through the demo board's own USB-C port, a USB-UART adapter, or the flasher |
+| **Timing** | 6.9 ns worst logic path against 20 ns at 50 MHz (estimate from real cell delays) |
 | **Area** | 49,186 µm² of standard cells, measured against the real sky130 library |
 | **Cost** | 2 × 2 Tiny Tapeout tiles = 280 € |
-| **Verification** | 178 self-checking assertions + 6 cocotb tests, RTL **and** gate-level |
+| **Verification** | 226 self-checking assertions, 6 cocotb tests, and **37/37 official RISC-V architecture tests**, RTL **and** gate-level |
+
+## What it looks like
+
+**The real, routed chip.** Every push runs Tiny Tapeout's full hardening flow on GitHub, which
+places and wires every cell and publishes the result. Once the first `gds` run finishes, the
+image below is the actual layout that goes to the fab, and
+[this link opens it in 3D](https://normansrule.github.io/tinypulse-skywater130/):
+
+![The routed TinyPulse layout, rendered by the Tiny Tapeout CI](https://normansrule.github.io/tinypulse-skywater130/gds_render.png)
+
+<sub>(If that image is missing, the `gds` workflow hasn't run yet, or GitHub Pages isn't
+enabled: Settings → Pages → Source: GitHub Actions.)</sub>
+
+**Before routing, block by block.** Every cell of the synthesized design, placed by block
+inside the 334.9 × 225.8 µm tile — the register file's regular grid of flip-flops on the left,
+the irregular logic of the CPU beside it:
+
+![Every real sky130 standard cell in TinyPulse, placed block by block inside the 2x2 tile](images/layout_blocks.png)
+
+**One flip-flop, taken apart.** The register file is 480 copies of this cell. Its real
+manufacturing layers — N-well, diffusion, polysilicon gates, contacts, local interconnect, vias,
+metal 1 — separate and rejoin:
+
+![One sky130 D flip-flop exploded into its manufacturing layers](images/flipflop_exploded.svg)
 
 ## Explore it interactively
 
@@ -94,8 +123,11 @@ the real sky130 library:
 | **TinyPulse: two 4-bit ports, rotating** | **11,322 µm²** |
 
 Every register rotates by one nibble on every clock, in lockstep with a 3-bit phase counter,
-so at phase *k* every register presents its *k*-th nibble on the same four wires. An addition
-is eight clocks through one 4-bit adder:
+so at phase *k* every register presents its *k*-th nibble on the same four wires:
+
+![The rotating register file](images/regfile_rotation.svg)
+
+An addition is eight clocks through one 4-bit adder, the carry held in a flip-flop between them:
 
 ![A 32-bit add, four bits per clock](images/nibble_add.svg)
 
@@ -188,6 +220,36 @@ functions in `sw/tinypulse.h`:
 Not implemented, by design: interrupts, CSRs, compressed instructions, misaligned-access
 traps. An illegal instruction is skipped and latches the `ILLEGAL` pin.
 
+## Try it today, on the simulated chip
+
+No board and no silicon needed. The simulator runs the real RTL — the same design that gets
+fabricated — booting from a model of the QSPI flash exactly as the chip will:
+
+```bash
+cd tinypulse-skywater130/test
+python -m pip install ziglang pyelftools          # a C compiler, no cross-toolchain needed
+make run PROG=../sw/examples/hello.c
+```
+
+```
+--- TinyPulse (simulated RTL, 50 MHz) ---
+Hello from TinyPulse!
+tick 1: deadline t0+100000, woke 32 clocks after
+tick 2: deadline t0+200000, woke 32 clocks after
+tick 3: deadline t0+300000, woke 32 clocks after
+...
+```
+
+Every wake-up lands the same 32 clocks after its deadline, however long the code in between took.
+That determinism is the point of the chip.
+
+![Deterministic timing: every wake-up lands the same 32 clocks after its deadline](images/deterministic_timing.svg) Point `PROG=` at any C file of your own.
+
+It also shows the honest speed: about 25 clocks per instruction, roughly 2 million instructions
+a second at 50 MHz. Printing a line with three numbers costs about 37,000 clocks, so
+`tp_io.h`'s `uart_putu` avoids division entirely — the core has no hardware divider, and the
+usual `v % 10, v / 10` loop would cost tens of thousands of clocks per number.
+
 ## Using it
 
 **Hardware:** a Tiny Tapeout demo board and the Tiny Tapeout QSPI Pmod on the bidirectional
@@ -220,6 +282,59 @@ int main(void) {
 }
 ```
 
+### Write C for it
+
+Any RV32E C compiler works. If you don't have a RISC-V toolchain installed, the Clang inside
+the `ziglang` pip package does the job, and it's what this repository's own tests use:
+
+```bash
+pip install ziglang pyelftools pyserial
+cd sw
+make TOOLCHAIN=zig            # camera_sync.bin, for flash
+make TOOLCHAIN=zig RAM=1      # the same program linked for RAM, for the bootloader
+```
+
+(With a GNU toolchain, drop `TOOLCHAIN=zig`.) Include `tinypulse.h` for the timing
+instructions and `tp_io.h` for the UART and GPIO (`uart_puts`, `uart_putu`, `GPIO_OUT`, ...).
+`sw/lib/rt.c` supplies the multiply and divide routines the compiler calls, since the core
+has no hardware multiplier.
+
+Two more libraries cover what you reach for first on any microcontroller:
+
+- **`tp_printf.h`**: `tp_printf("t=%u id=%08x\n", t, id)` — `%d %i %u %x %X %c %s %%` with
+  widths and zero padding, checked character for character against Python's `%` formatting.
+  It prints numbers without dividing, so it stays fast on a core with no divider.
+- **`tp_spi.h`**: an SPI master in software on the GPIO pins (mode 0, about 100 kHz at 50 MHz),
+  for sensors, flash chips and small displays. TinyPulse spends its silicon on the core and the
+  timing unit instead of SPI hardware; the RP2040-style `GPIO_SET`/`GPIO_CLR` registers make
+  a software SPI short and race-free. Tested against a simulated W25Q128 flash, whose JEDEC ID
+  it reads correctly (`sw/examples/spi_flash_id.c`).
+
+Every build is checked by `sw/rv32e_check.py`, which decodes each instruction and refuses
+anything TinyPulse doesn't implement — a multiply, a CSR access, a compressed instruction, a
+register above x15 — so a wrong compiler flag fails at build time, not on the board.
+
+`sw/examples/c_selftest.c` is the proof it all works: initialized and zeroed globals, strings in
+flash, recursion on the stack, software multiply and divide, function pointers and a timed
+`tp_wait`. The testbench runs it from flash and again over the UART bootloader, and checks every
+character it prints.
+
+### Program it through the demo board's USB-C port
+
+No adapter needed: `sw/demoboard/tpboot.py` runs on the demo board and becomes the serial cable.
+It clocks TinyPulse at 4.17 MHz so the chip's UART lands at 9600 baud without changing
+anything on the chip, holds the boot pin, sends your program and shows what it prints:
+
+```bash
+pip install mpremote
+mpremote cp sw/demoboard/tpboot.py :tpboot.py && mpremote cp app.bin :app.bin
+mpremote exec "import tpboot; tpboot.load('app.bin')"
+```
+
+Its protocol and bit timing are tested on a PC against a simulated chip with timing jitter, clock
+error and counter wrap-around. **[docs/BRINGUP.md](../docs/BRINGUP.md)** walks through a real board
+from first power-up, including what each status pin means when something's wrong.
+
 ### Program it over USB serial — no flasher
 
 TinyPulse has a boot ROM, the way an RP2040 does. **Hold `ui_in[7]` high while you release
@@ -236,9 +351,8 @@ chip → PC   checksum byte, then K              verified
 On the PC side, `sw/tpload.py` does all of it (it only needs `pyserial`):
 
 ```bash
-riscv32-unknown-elf-gcc -march=rv32e -mabi=ilp32e -nostdlib -T sw/link_ram.ld \
-    -o app.elf sw/crt0.S app.c && riscv32-unknown-elf-objcopy -O binary app.elf app.bin
-python3 sw/tpload.py -p /dev/ttyUSB0 app.bin --monitor
+cd sw && make TOOLCHAIN=zig RAM=1                  # camera_sync.bin, linked for RAM
+python3 tpload.py -p /dev/ttyUSB0 camera_sync.bin --monitor
 ```
 
 Any 3.3 V USB-to-UART bridge works: its TX to `ui_in[3]`, its RX to `uo_out[4]`, and ground.
@@ -263,6 +377,8 @@ read every line of, down to the transistors, with a timing unit most microcontro
 
 ## Verification
 
+**Every command to test everything is in [docs/TESTING.md](../docs/TESTING.md).**
+
 | Test | What it proves | Checks |
 |---|---|---:|
 | `make isa` | every RV32I instruction, vs. Python-computed results | 51 |
@@ -271,18 +387,38 @@ read every line of, down to the transistors, with a timing unit most microcontro
 | `make xpulse` | all eleven Xpulse instructions | 15 |
 | `make soc` | boots, arms a deadline, trigger lands on the exact tick | 12 |
 | `make wrap` | `TWAIT` held correctly across the timebase rollover | 10 |
-| `make boot` | UART bootloader: a program sent over serial lands in RAM and runs | 10 |
+| `make boot` | UART bootloader: a program sent over serial lands in RAM and runs | 11 |
 | `make wake` | the chip wakes the flash and RAM itself, from cold, warm and pre-set states | 14 |
+| `make c` | Clang-compiled C, run from flash and over the UART bootloader, output checked | 12 |
+| `make act` | **the official RISC-V architecture tests** (riscv-arch-test, RV32E): signatures vs the golden model, run from RAM | **37 / 37** (12,521 words) |
+| `make bridge` | the demo-board bridge vs a simulated chip: jitter, ±2% clock error, counter wrap | 10 |
+| `make printf` | `tp_printf` against Python's `%` formatting, 23 cases | 23 |
+| `make spi` | software SPI reads a simulated W25Q128's JEDEC ID | 2 |
+| Tiny Tapeout pre-flight | CI's own project checker (`tt_tool.py`): docs, ports, build config | passes |
+| `make timing` | critical-path estimate from real sky130 cell delays | 6.9 ns / 20 ns |
 | `make` (cocotb) | from the pins only: firmware printing over the UART, the boot strap | 6 |
 | `make GATES=yes` | the same cocotb tests on the synthesized sky130 netlist | 5 + 1 skipped |
 | `tpload.py selftest` | the PC-side loader: framing, checksum, error cases | 7 |
 | `make lint` | Verilator `-Wall`, no waivers | clean |
+
+TinyPulse was cross-checked against the RISC-V conformance suite and against TinyQV, the
+closest silicon-proven design; [docs/REFERENCES.md](../docs/REFERENCES.md) lists what matched and
+what changed. One item stands out: TinyQV avoids the RAM's 8 µs refresh rule by never running
+code from RAM, while TinyPulse deliberately does (for the bootloader), so the RAM model now
+enforces the datasheet's chip-select timing and every test that runs code from RAM checks it.
 
 The memory models are strict: like the real chips, they ignore fast transactions until they
 have been woken up properly. An earlier version of the models was forgiving, and hid the fact
 that the chip never woke its memories — it simulated perfectly and would not have run a single
 instruction on a real board. Making the models strict exposed that, and the wake-up sequence
 fixed it.
+
+Compiling real C for the first time found two more bugs that no hand-assembled test could:
+the flash linker script put initialized globals in RAM with no copy stored in flash, and the
+start-up code never copied them. Any program with `int x = 5;` at file scope would have been
+broken on the board. Both are fixed, and putting the bug back makes `make c` fail loudly: the
+program prints `data 1` instead of `data 42`, then calls a function pointer that was never
+initialized and restarts itself forever.
 
 The tests were checked against themselves: six deliberate bugs were injected (a register-file
 nibble mis-write, UART sampling at the bit edge, `GPIO_CLR` acting as toggle, signed compares
@@ -300,7 +436,9 @@ src/boot/      tp_bootrom.sv, generated by sw/mkboot.py
 src/bus/       address decode, QSPI controller
 src/tp_soc.sv  the microcontroller;  tt_um_normansrule_tinypulse.sv  pin wrapper
 src/config.json  hardening configuration
-sw/            tinypulse.h (C API), tpload.py (UART loader), link_ram.ld, program generators
+sw/demoboard/  tpboot.py: program TinyPulse through the demo board's USB-C port
+sw/            tinypulse.h (timing), tp_io.h (UART/GPIO), tp_printf.h, tp_spi.h, crt0.S, link.ld, link_ram.ld,
+               lib/rt.c, rv32e_check.py, tpload.py (UART loader), examples/, program generators
 test/          every testbench above
 docs/tools/    layout_preview.py, figures.py, build_explorer.py — regenerate every image
                and the interactive explorer

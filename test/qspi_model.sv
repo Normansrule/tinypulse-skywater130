@@ -17,6 +17,7 @@
 // sck and samples on the falling edge, so the device drives on the rising
 // edge and holds through the high period.
 `default_nettype none
+`timescale 1ns/1ps
 
 // ---------------------------------------------------------------------
 // Flash (W25Q128JV), read only. Holds the program.
@@ -135,6 +136,28 @@ module qspi_psram_model #(
     reg [3:0]  hi_nib;
     reg [7:0]  cmd;
     integer    i;
+
+    // Datasheet timing the controller must respect. The APS6404L refreshes
+    // itself only while deselected, so chip select may stay low for at most
+    // 8 us (tCEM), and it needs 18 ns high between transactions (tCPH).
+    // TinyQV avoided the 8 us rule by never running code from RAM; TinyPulse
+    // does run code from RAM, so every test that does checks this counter.
+    integer    violations = 0;
+    realtime   t_low = 0, t_high = -1000;
+    always @(negedge cs_n) begin
+        if ($realtime - t_high < 18.0) begin
+            violations = violations + 1;
+            $display("PSRAM TIMING: chip select high for only %0.1f ns (tCPH >= 18 ns)", $realtime - t_high);
+        end
+        t_low = $realtime;
+    end
+    always @(posedge cs_n) begin
+        if ($realtime - t_low > 8000.0) begin
+            violations = violations + 1;
+            $display("PSRAM TIMING: chip select low for %0.1f ns (tCEM <= 8000 ns)", $realtime - t_low);
+        end
+        t_high = $realtime;
+    end
 
     initial begin
         for (i = 0; i < BYTES; i = i + 1) mem[i] = 8'h00;

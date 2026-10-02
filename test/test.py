@@ -153,7 +153,8 @@ async def test_hello_uart_and_gpio(dut):
     cocotb.start_soon(Clock(dut.clk, CLK_NS, "ns").start())
 
     # load the hello firmware into the flash model in place of prog.hex
-    words = [int(l, 16) for l in open("hello.hex") if l.strip()]
+    with open("hello.hex") as f:
+        words = [int(l, 16) for l in f if l.strip()]
     for i, w in enumerate(words):
         dut.u_flash.mem[i].value = w
     await reset(dut)

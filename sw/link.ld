@@ -1,40 +1,48 @@
-/* link.ld — TinyPulse-Skywater130 memory map.
+/* link.ld — programs that run from flash (the normal case).
  *
- * Code and read-only data live in the external QSPI flash, which the core
- * fetches from directly. Writable data and the stack live in the external
- * QSPI PSRAM. There is no on-chip memory of any kind; see the area budget
- * in the README for why.
+ * Code and constants stay in the QSPI flash and execute in place. Writable
+ * data lives in RAM A: its initial values are stored in flash right after
+ * the code (the "load address"), and crt0.S copies them to RAM at start-up.
+ * The stack grows down from the top of RAM A.
  */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
-
 MEMORY
 {
     FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 16M
     PSRAM (rwx) : ORIGIN = 0x10000000, LENGTH = 8M
 }
-
 SECTIONS
 {
     .text : {
         KEEP(*(.text.init))
         *(.text .text.*)
-        *(.rodata .rodata.*)
+        _code_end = .;                  /* sw/rv32e_check.py checks up to here */
+        *(.rodata .rodata.* .srodata .srodata.*)
+        . = ALIGN(4);
     } > FLASH
 
     .data : {
+        _data_start = .;
         __global_pointer$ = . + 0x800;
-        *(.data .data.*)
         *(.sdata .sdata.*)
-    } > PSRAM
+        *(.data .data.*)
+        . = ALIGN(4);
+        _data_end = .;
+    } > PSRAM AT > FLASH
+    _data_lma = LOADADDR(.data);
 
-    .bss : {
+    .bss (NOLOAD) : {
         _bss_start = .;
-        *(.bss .bss.*)
         *(.sbss .sbss.*)
+        *(.bss .bss.*)
         *(COMMON)
+        . = ALIGN(4);
         _bss_end = .;
     } > PSRAM
+
+    /* unwind tables and notes the compiler may emit; nothing here needs them */
+    /DISCARD/ : { *(.eh_frame .eh_frame_hdr .note .note.* .comment) }
 
     _stack_top = ORIGIN(PSRAM) + LENGTH(PSRAM);
 }

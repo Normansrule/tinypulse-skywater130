@@ -266,7 +266,8 @@ def main():
                "total_cell_area_um2": round(total, 1),
                "utilization_of_core_area": round(util, 4),
                "instances": len(placements), "fill_instances": len(fills),
-               "blocks": {b: round(a, 1) for b, a in sorted(area.items(), key=lambda kv: -kv[1])}},
+               "blocks": {b: round(a, 1) for b, a in sorted(area.items(), key=lambda kv: -kv[1])},
+               "regions_um": {b: [round(v, 2) for v in r] for b, r in regions.items()}},
               open("docs/area.json", "w"), indent=2)
     print(f"{len(placements)} cells ({total:,.0f} um^2, {100*util:.1f}% of the core area), "
           f"{len(fills)} fill/decap cells")

@@ -225,7 +225,7 @@ footer{padding:48px 0 64px;color:var(--muted);font-size:15px;border-top:1px soli
     <h2>Running your first program</h2>
     <ol class="steps measure">
       <li><div><h3>Plug in the QSPI Pmod</h3><p>Attach the Tiny Tapeout QSPI Pmod to the demo board's bidirectional header. It holds your program (16 MB flash) and your data (16 MB RAM). No setup script: the chip wakes both memory chips into their fast modes itself, two microseconds after every reset.</p></div></li>
-      <li><div><h3>Load your program</h3><p>Either put it in flash with the Tiny Tapeout Flasher (it stays there), or hold ui[7] high through reset and send it over a USB serial adapter with <code>sw/tpload.py</code> (it runs from RAM until power-off, like a quick development loop).</p></div></li>
+      <li><div><h3>Load your program</h3><p>Three ways. Through the demo board's own USB-C port with <code>sw/demoboard/tpboot.py</code>, no extra hardware. At full speed through a USB serial adapter with <code>sw/tpload.py</code>. Or permanently into flash with the Tiny Tapeout Flasher. The first two run your program from RAM until power-off, a quick development loop.</p></div></li>
       <li><div><h3>Select the design and release reset</h3><p>The heartbeat on uo[7] starts blinking and your code runs from address 0.</p></div></li>
       <li><div><h3>Read its output</h3><p>The serial port sits on the pins wired to the demo board's RP2040, at 115,200 baud.</p></div></li>
     </ol>
